@@ -1,5 +1,10 @@
 # Generated memory and session indexes
 
+This document describes the older SQLite pointer-index API. Phase 3 durable
+Markdown knowledge uses the separate reference-validating, paginated generation
+contract in `docs/working-loop.md`; its project/lesson/session/harness indexes do
+not inherit the 256-entry ceiling below.
+
 Status: **BOUNDED / PARTIAL**. `src/state/indexes.ts` and `src/edges/indexes.ts` generate
 Markdown indexes of *imported pointer metadata*. They do not read knowledge prose, do not
 verify that a referenced document exists, and do not migrate any existing vault, note, or

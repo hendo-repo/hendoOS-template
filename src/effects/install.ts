@@ -45,7 +45,7 @@ import { dirname as parentDir, isAbsolute, join, resolve, sep } from 'node:path'
 import { z } from 'zod';
 import { sortPaths } from '../protocols/paths';
 import { InstallManifestSchema, isInstallPath } from '../schema/install';
-import { readFileDigest, validateRoots, type PathFailureCode } from './paths';
+import { readFileDigest, readVerifiedFile, validateRoots, type PathFailureCode } from './paths';
 
 /** Reserved control directory inside the target root. Owned by this module. */
 export const CONTROL_DIR = '.aos';
@@ -231,14 +231,12 @@ export interface InstallOptions {
   expectedGeneration?: number;
   /** Exact permission bits for owned outputs; omitted new outputs default to 0600. */
   modes?: Record<string, number>;
-  failpoints?: Failpoints;
 }
 
 export interface UninstallOptions {
   targetRoot: string;
   owner: string;
   expectedGeneration?: number;
-  failpoints?: Failpoints;
 }
 
 export interface RecoveryOptions {
@@ -249,8 +247,11 @@ export interface RecoveryOptions {
    * be acquired; this flag cannot take over an active library transaction.
    */
   assumeDead?: boolean;
-  failpoints?: Failpoints;
 }
+
+interface InstallTestOptions extends InstallOptions { failpoints?: Failpoints }
+interface UninstallTestOptions extends UninstallOptions { failpoints?: Failpoints }
+interface RecoveryTestOptions extends RecoveryOptions { failpoints?: Failpoints }
 
 export interface OwnershipEntry {
   path: string;
@@ -342,17 +343,20 @@ const InstallOptionsSchema = z.strictObject({
   sourceRoot: z.string(), targetRoot: z.string(), stageRoot: z.string(),
   manifest: z.unknown(), owner: OwnerSchema,
   modes: z.record(z.string().refine(path => isInstallPath(path) && !reserved(path)), ModeSchema).optional(),
-  expectedGeneration: z.int().positive().optional(), failpoints: FailpointsSchema.optional(),
+  expectedGeneration: z.int().positive().optional(),
 });
+const InstallTestOptionsSchema = InstallOptionsSchema.extend({ failpoints: FailpointsSchema.optional() });
 
 const UninstallOptionsSchema = z.strictObject({
   targetRoot: z.string(), owner: OwnerSchema,
-  expectedGeneration: z.int().positive().optional(), failpoints: FailpointsSchema.optional(),
+  expectedGeneration: z.int().positive().optional(),
 });
+const UninstallTestOptionsSchema = UninstallOptionsSchema.extend({ failpoints: FailpointsSchema.optional() });
 
 const RecoveryOptionsSchema = z.strictObject({
-  targetRoot: z.string(), owner: OwnerSchema, assumeDead: z.boolean().optional(), failpoints: FailpointsSchema.optional(),
+  targetRoot: z.string(), owner: OwnerSchema, assumeDead: z.boolean().optional(),
 });
+const RecoveryTestOptionsSchema = RecoveryOptionsSchema.extend({ failpoints: FailpointsSchema.optional() });
 
 const KNOWN_FIELDS = new Set([
   'sourceRoot', 'targetRoot', 'stageRoot', 'manifest', 'owner', 'expectedGeneration', 'failpoints', 'assumeDead',
@@ -880,9 +884,10 @@ async function executeTransaction(ctx: TxContext, plan: MutationPlan): Promise<T
     for (const entry of plan.entries) {
       const staged = `${staging}/${entry.path}`;
       if (entry.action !== 'remove') {
-        if (!ctx.stageRoot || !await matches(ctx.stageRoot, entry.path, entry.digest)) throw new Error('stage changed');
-        const bytes = await readFile(join(ctx.stageRoot, entry.path));
-        if (digestOf(bytes) !== entry.digest) throw new Error('stage changed');
+        if (!ctx.stageRoot) throw new Error('stage changed');
+        const verified = await readVerifiedFile(ctx.stageRoot, entry.path, entry.digest);
+        if (!verified.ok) throw new Error('stage changed');
+        const bytes = verified.value;
         await ensureDirectory(ctx.targetRoot, parentDir(staged), []);
         const handle = await open(join(ctx.targetRoot, staged), 'wx', 0o600);
         try {
@@ -1059,9 +1064,9 @@ async function cleanupTransaction(targetRoot: string, journal: FileHandle | null
 // install
 // ---------------------------------------------------------------------------
 
-async function installLocked(options: InstallOptions, locked = false): Promise<InstallReport> {
+async function installLocked(options: InstallTestOptions, locked = false, schema: z.ZodType<InstallTestOptions> = InstallTestOptionsSchema): Promise<InstallReport> {
   const report = emptyReport('install');
-  const input = parseOptions(report, InstallOptionsSchema, options);
+  const input = parseOptions(report, schema, options);
   if (!input) return report;
 
   if (!plainData(input.manifest)) {
@@ -1138,7 +1143,7 @@ async function installLocked(options: InstallOptions, locked = false): Promise<I
     return report;
   }
 
-  if (!locked) return serialized('install', InstallOptionsSchema, input, value => installLocked(value, true));
+  if (!locked) return serialized('install', schema, input, value => installLocked(value, true, schema));
 
   // Serialize competing installers on this target before any mutation or journal.
   // The lock carries this transaction's nonce, so cleanup can prove ownership.
@@ -1373,9 +1378,9 @@ async function installLocked(options: InstallOptions, locked = false): Promise<I
 // uninstall
 // ---------------------------------------------------------------------------
 
-async function uninstallLocked(options: UninstallOptions): Promise<InstallReport> {
+async function uninstallLocked(options: UninstallTestOptions): Promise<InstallReport> {
   const report = emptyReport('uninstall');
-  const input = parseOptions(report, UninstallOptionsSchema, options);
+  const input = parseOptions(report, UninstallTestOptionsSchema, options);
   if (!input) return report;
 
   const root = await inspectRoot(input.targetRoot);
@@ -1549,9 +1554,9 @@ function processAlive(pid: number): boolean {
   catch (error) { return errnoOf(error) !== 'ESRCH'; }
 }
 
-async function recoverLocked(options: RecoveryOptions): Promise<InstallReport> {
+async function recoverLocked(options: RecoveryTestOptions): Promise<InstallReport> {
   const report = emptyReport('recover');
-  const input = parseOptions(report, RecoveryOptionsSchema, options);
+  const input = parseOptions(report, RecoveryTestOptionsSchema, options);
   if (!input) return report;
   const root = await inspectRoot(input.targetRoot);
   if (!root.ok) { report.issues.push(makeIssue('roots', 'root-invalid', root.message, undefined, root.code)); return report; }
@@ -1690,7 +1695,7 @@ async function serialized<T extends { targetRoot: string }>(operation: InstallOp
 }
 
 export function install(options: InstallOptions): Promise<InstallReport> {
-  return installLocked(options);
+  return installLocked(options, false, InstallOptionsSchema);
 }
 export function uninstall(options: UninstallOptions): Promise<InstallReport> {
   return serialized('uninstall', UninstallOptionsSchema, options, uninstallLocked);
@@ -1698,6 +1703,15 @@ export function uninstall(options: UninstallOptions): Promise<InstallReport> {
 export function recoverInstall(options: RecoveryOptions): Promise<InstallReport> {
   return serialized('recover', RecoveryOptionsSchema, options, recoverLocked);
 }
+
+/** @internal Test-only fault-injection entrypoints. Import through install-testing.ts. */
+export const __installWithFaults = (options: InstallTestOptions): Promise<InstallReport> => installLocked(options);
+/** @internal Test-only fault-injection entrypoints. Import through install-testing.ts. */
+export const __uninstallWithFaults = (options: UninstallTestOptions): Promise<InstallReport> =>
+  serialized('uninstall', UninstallTestOptionsSchema, options, uninstallLocked);
+/** @internal Test-only fault-injection entrypoints. Import through install-testing.ts. */
+export const __recoverWithFaults = (options: RecoveryTestOptions): Promise<InstallReport> =>
+  serialized('recover', RecoveryTestOptionsSchema, options, recoverLocked);
 
 /** Validate the whole intent, not merely individual JSON records. */
 function validJournal(records: JournalRecord[]): boolean {

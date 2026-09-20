@@ -7,7 +7,7 @@ const RpcId = z.union([z.string().max(128), z.number().int()]);
 const Message = z.strictObject({ jsonrpc: z.literal('2.0'), id: RpcId.optional(), method: z.string().min(1).max(128), params: z.record(z.string(), JsonValueSchema).optional() });
 const Initialize = z.object({ protocolVersion: z.literal('2025-06-18'), capabilities: z.record(z.string(), JsonValueSchema), clientInfo: z.object({ name: z.string(), version: z.string() }) });
 const emptyParams = z.strictObject({});
-const commands = ['orient', 'gate', 'reference'] as const;
+const commands = ['orient', 'gate', 'closeout', 'reference'] as const;
 export async function serve(service: RuntimeService, input: ReadableStream<Uint8Array> = Bun.stdin.stream(), output: (text: string) => Promise<unknown> = text => Bun.stdout.write(text)): Promise<number> {
   let initialized = false;
   let ready = false;
@@ -47,7 +47,8 @@ export async function serve(service: RuntimeService, input: ReadableStream<Uint8
       const experimental = init.data.capabilities.experimental;
       const aos = experimental && typeof experimental === 'object' && !Array.isArray(experimental) ? experimental.aos : undefined;
       if (aos !== undefined) {
-        const handshake = z.strictObject({ version: z.literal(1), schemaVersion: z.literal(1), composeVersion: z.literal(1), contentGeneration: z.literal(service.handshake.contentGeneration) }).safeParse(aos);
+        const handshake = z.strictObject({ version: z.literal(1), schemaVersion: z.literal(1), composeVersion: z.literal(1),
+          contentGeneration: z.literal(service.handshake.contentGeneration), sourceRevision: z.literal(service.handshake.sourceRevision) }).safeParse(aos);
         if (!handshake.success) { await error(id, -32602, 'AOS version/content handshake mismatch'); return; }
       }
       initialized = true;

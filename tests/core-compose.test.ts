@@ -70,12 +70,14 @@ const MEMBERSHIP: MembershipManifest = {
       event: 'session-start',
       expectedIds: ['kernel-a', 'kernel-b', 'ref-a'],
       expectedKernelIds: ['kernel-a', 'kernel-b'],
+      expectedStaticIds: ['kernel-a', 'kernel-b'],
     },
   ],
 };
 
 function indexWith(documents: readonly ContentDocument[]): ComposeIndex {
-  return { documents, staticBlocks: [FRAMEWORK_BLOCK], mustFireKernelIds: ['kernel-a', 'kernel-b'] };
+  return { documents, staticBlocks: [FRAMEWORK_BLOCK], mustFireKernelIds: ['kernel-a', 'kernel-b'],
+    mustFireStaticIds: ['kernel-a', 'kernel-b'] };
 }
 
 describe('compose: two-zone payload', () => {

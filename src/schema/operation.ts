@@ -3,13 +3,23 @@ import { z } from 'zod';
 import { ContentIdSchema, DigestSchema, JsonValueSchema, TokenSchema } from '../protocols/validation';
 import { PolicyRuleRuntimeSchema, PolicyRulesRuntimeSchema } from './runtime';
 const Id = TokenSchema.refine(value => value.length <= 128, 'identifier too long');
+export const SourceRevisionSchema = z.string().regex(/^[a-f0-9]{40}$/, 'source revision must be one exact git commit');
 export const ObservationSchema = z.strictObject({
   key: Id,
-  status: z.enum(['fresh', 'missing', 'unavailable', 'stale', 'empty', 'incomplete']),
+  availability: z.enum(['available', 'unavailable']),
+  freshness: z.enum(['fresh', 'stale', 'unknown']),
+  completeness: z.enum(['complete', 'partial', 'unknown']),
+  result: z.enum(['present', 'empty', 'no-work', 'unknown']),
+  reasons: z.array(Id).max(8).default([]),
   value: JsonValueSchema.optional(),
   provenance: z.strictObject({ kind: z.literal('synthetic'), source: Id, subjectDigest: DigestSchema,
-    configRevision: Id, checkerRevision: z.literal('aos-policy/1') }),
-}).refine(value => value.status !== 'fresh' || value.value !== undefined, 'fresh observation requires value');
+    configRevision: Id, checkerRevision: z.literal('aos-policy/1'), sourceRevision: SourceRevisionSchema }),
+}).superRefine((observation, ctx) => {
+  const current = observation.availability === 'available' && observation.freshness === 'fresh' &&
+    observation.completeness === 'complete' && observation.result === 'present';
+  if (current && observation.value === undefined) ctx.addIssue({ code: 'custom', message: 'current complete observation requires value' });
+  if (observation.result !== 'present' && observation.value !== undefined) ctx.addIssue({ code: 'custom', message: 'only present observations carry values' });
+});
 export const ProjectConfigSchema = z.strictObject({ totalByteBudget: z.int().positive().max(262144).optional() });
 /**
  * Condition and scope families the shared runtime can actually supply. The
@@ -63,8 +73,9 @@ export const OwnerConfigSchema = z.strictObject({
 export const OperationSchema = z.strictObject({
   version: z.literal(1), schemaVersion: z.literal(1), composeVersion: z.literal(1),
   contentGeneration: z.int().nonnegative(), requestId: Id, sessionId: Id, ownerId: Id, nonce: Id,
-  command: z.enum(['orient', 'gate', 'reference']), scenarioId: Id,
+  command: z.enum(['orient', 'gate', 'closeout', 'reference']), scenarioId: Id,
   subjectDigest: DigestSchema, configRevision: Id, checkerRevision: z.literal('aos-policy/1'),
+  sourceRevision: SourceRevisionSchema,
   referenceId: ContentIdSchema.optional(),
   observations: z.array(ObservationSchema).max(256).refine(values => new Set(values.map(v => v.key)).size === values.length, 'duplicate observation'),
   projectConfig: ProjectConfigSchema.optional(), timeoutMs: z.int().min(1).max(30000).default(5000),

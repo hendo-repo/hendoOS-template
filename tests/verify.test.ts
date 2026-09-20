@@ -76,6 +76,18 @@ describe.skipIf(process.platform === 'win32')('bounded explicit child execution'
   });
 });
 
+test.skipIf(process.platform === 'win32')('large verifier output is split into bounded ordered JSONL frames', async () => {
+  const frames: Record<string, any>[] = [];
+  const body = 'x'.repeat(40_000);
+  await runGates([{ name: 'large-frame', ...command(`process.stderr.write(${JSON.stringify(body)})`) }],
+    frame => frames.push(frame));
+  const output = frames.filter(frame => frame.kind === 'output' && frame.channel === 'stderr');
+  expect(output.length).toBeGreaterThan(1);
+  expect(output.every(frame => frame.text.length <= 8 * 1024)).toBe(true);
+  expect(output.map(frame => frame.text).join('')).toBe(body);
+  expect(output.map(frame => frame.part)).toEqual(Array.from({ length: output.length }, (_, index) => index + 1));
+});
+
 describe.skipIf(process.platform === 'win32')('gate evidence and safe framing', () => {
   test('all gates run after failure; green text cannot override exit', async () => {
     const frames: Record<string, unknown>[] = [];
@@ -103,7 +115,7 @@ describe.skipIf(process.platform === 'win32')('gate evidence and safe framing', 
     expect(redactOutput('safe message', {})).toEqual({ text: 'safe message', matchCount: 0 });
     expect(redactOutput(sentinel, { AOS_CHECK_PUBLIC_PRIVATE_TOKENS: `probe=${sentinel}` }))
       .toEqual({ text: '<token>', matchCount: 1 });
-    expect(redactOutput(['TASK', 987].join('-'), { AOS_CHECK_PUBLIC_TRACKER_PREFIXES: 'TASK' + '-' }))
+    expect(redactOutput(['TASK', 987].join('-'), { AOS_CHECK_PUBLIC_TRACKER_PREFIXES: 'TASK' }))
       .toEqual({ text: '<token>', matchCount: 1 });
     expect(redactOutput(['', 'Us' + 'ers', 'sample', 'file'].join('/'), {}))
       .toEqual({ text: '<path>/file', matchCount: 1 });
@@ -146,8 +158,8 @@ describe.skipIf(process.platform === 'win32')('gate evidence and safe framing', 
       AOS_CHECK_PUBLIC_PRIVATE_TOKENS: 'prefix=sample,overlap=abba',
     });
     expect(result).toEqual({ text: '<email> <token> ok', matchCount: 2 });
-    const tracker = ['T.SK', 45].join('-');
-    expect(redactOutput(`${tracker} TzSK-45`, { AOS_CHECK_PUBLIC_TRACKER_PREFIXES: 'T.SK-' }).text)
+    const tracker = ['TSK', 45].join('-');
+    expect(redactOutput(`${tracker} TzSK-45`, { AOS_CHECK_PUBLIC_TRACKER_PREFIXES: 'TSK' }).text)
       .toBe('<token> TzSK-45');
   });
   test('redaction still fails a zero-exit gate with a valid test summary', async () => {
@@ -225,7 +237,7 @@ describe('content gate: exact positive membership and negative controls', () => 
 
   const scenario = (over: Record<string, unknown> = {}) => ({
     id: 'sample', harness: 'default', event: 'session-start',
-    expectedIds: ['sample'], expectedKernelIds: ['sample'], ...over,
+    expectedIds: ['sample'], expectedKernelIds: ['sample'], expectedStaticIds: ['sample'], ...over,
   });
   const manifestOf = (scenarios: unknown[]) =>
     ({ version: 1, owner: 'test', generation: 1, scenarios });
@@ -242,7 +254,7 @@ describe('content gate: exact positive membership and negative controls', () => 
     await withCorpus(manifestOf([
       scenario(),
       scenario({ id: 'unknown-event-activates-nothing', event: 'no-such-event', expectedIds: [], expectedKernelIds: [] }),
-      scenario({ id: 'unknown-harness-activates-nothing', harness: 'unlisted-harness', expectedIds: [], expectedKernelIds: [] }),
+      scenario({ id: 'unknown-harness-activates-nothing', harness: 'unlisted-harness', expectedIds: [], expectedKernelIds: [], expectedStaticIds: [] }),
     ]));
     expect(await validateContent(root)).toEqual({ files: 1, documents: 1, scenarios: 3 });
   });
@@ -318,8 +330,9 @@ test('benchmark requires enough samples and explicit CLI argv', () => {
   expect(benchmarkOptions(['--samples', '20']).samples).toBe(20);
   const argv = ['bun', 'src/cli.ts', 'hook'];
   expect(benchmarkOptions(['--label', 'hook', '--command-json', JSON.stringify(argv)]).argv).toEqual(argv);
+  expect(benchmarkOptions(['--label', 'rpc', '--command-json', JSON.stringify(argv), '--stdin-file', 'operation.json', '--mode', 'rpc', '--interventions', '0']).mode).toBe('rpc');
   for (const args of [['--samples', '19'], ['--samples', '20oops'], ['--command-json', '"bun hook"'],
-    ['--label', 'hook'], ['--command-json', '[]'], ['--samples', '20', '--samples', '30']]) {
+    ['--label', 'hook'], ['--command-json', '[]'], ['--samples', '20', '--samples', '30'], ['--mode', 'rpc']]) {
     expect(() => benchmarkOptions(args)).toThrow();
   }
   expect(percentile(Array.from({ length: 20 }, (_, i) => i + 1), 0.5)).toBe(10);

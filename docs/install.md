@@ -17,19 +17,16 @@ interface InstallOptions {
   owner: string;
   expectedGeneration?: number;
   modes?: Record<string, number>;
-  failpoints?: Failpoints;
 }
 interface UninstallOptions {
   targetRoot: string;
   owner: string;
   expectedGeneration?: number;
-  failpoints?: Failpoints;
 }
 interface RecoveryOptions {
   targetRoot: string;
   owner: string;
   assumeDead?: boolean;
-  failpoints?: Failpoints;
 }
 ```
 
@@ -77,7 +74,7 @@ Bun documents its [built-in SQLite API](https://bun.sh/docs/runtime/sqlite). The
 
 ## Mutation and recovery rules
 
-Install validates roots, modes, manifest, every source digest and every staged digest before creating target controls. It repeats verification after obtaining exclusion, then reads ownership under that lock. Input changes after the first check can leave the stable coordination file but cannot authorize output mutation. Staged bytes are rechecked again when copied.
+Install validates roots, modes, manifest, every source digest and every staged digest before creating target controls. It repeats verification after obtaining exclusion, then reads ownership under that lock. Input changes after the first check can leave the stable coordination file but cannot authorize output mutation. Each staged copy is read through one bounded descriptor; identity, metadata, length and digest are rechecked before those exact bytes are written, so there is no verify-then-reopen window.
 
 A flushed strict journal records the complete plan before artifact mutation. Validation checks sequence, phase order, owner/generation, state transitions, safe paths, exact backup destinations, modes, and the relationship of each action to old/new ownership. Torn or inconsistent journals refuse automatic recovery.
 
@@ -103,7 +100,7 @@ Reports contain JSON-safe status, counts, mutation counters, relative residue pa
 
 Counters describe checked/planned artifacts and applied actions, not syscalls or a durable audit log. `recoveryRequired: false` on a partial uninstall means the transaction finalized but modified owned files remain.
 
-Test-only `failpoints: { at, mode }` supports `abort`, `crash` and immediate `exit` (code 70). A configured point fires once per operation. Recovery interruption uses the same option. Boundaries are:
+Production option schemas reject `failpoints`. The separate `src/effects/install-testing.ts` module exposes test-only wrappers whose `failpoints: { at, mode }` supports `abort`, `crash` and immediate `exit` (code 70). Production edges never import that module. A configured point fires once per operation. Recovery interruption uses the same option. Boundaries are:
 
 ```text
 after-lock             after-journal          after-plan

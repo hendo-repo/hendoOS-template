@@ -37,7 +37,9 @@ and expired deadlines fail. A new Bun summary format may require a parser update
 The public-source gate accepts private literals through
 `AOS_CHECK_PUBLIC_PRIVATE_TOKENS` and tracker prefixes through
 `AOS_CHECK_PUBLIC_TRACKER_PREFIXES`. Values are comma/newline-separated, with
-optional `label=value` entries. Tracker prefixes include their separator.
+optional `label=value` entries only for private tokens. Tracker prefixes are a
+comma-separated list of bare prefixes such as `CURRENT,LEGACY`; they do not
+include `-`, labels, or empty entries.
 Supply private values through the environment;
 never check them into a fixture or workflow. The runner inherits this configuration
 and matches configured values case-insensitively across common path, filename,
@@ -93,18 +95,23 @@ sample counts, input bytes, stdout/stderr bytes, and nearest-rank p50/p95 times.
 Times include launch, input consumption, output drain, and process exit. OS caches
 may be warm. These synthetic tiers do not measure content compilation or hooks.
 
-Once a CLI exists, run its actual local hook and orient commands separately:
+Run actual local hook and orient commands separately, then measure an initialized
+persistent MCP process to distinguish cold process cost from amortized RPC cost:
 
 ```text
 bun run benchmark --samples 30 --label hook --command-json '["bun","src/cli.ts","hook"]' --stdin-file hook-event.json
 bun run benchmark --samples 30 --label orient --command-json '["bun","src/cli.ts","orient"]'
+bun run benchmark --samples 30 --label gate-rpc --mode rpc --command-json '["bun","src/edges/cli.ts","serve","--state","/tmp/aos-bench.sqlite","--content","./content","--source-revision","COMMIT"]' --stdin-file gate.json --interventions 0
 ```
 
 Those argument arrays are examples; adapt them to the CLI's real contract and
 use an isolated fixture configuration. Each command is spawned directly, with no
 shell evaluation. A custom command runs once per sample; it is not replaced by
 an in-process surrogate. Its supplied stdin is one byte tier, and its captured
-output contributes byte measurements. Check behavior separately: exit zero alone
+output contributes byte measurements. Runtime responses also report composed
+kernel/reference/framework byte tiers separately from source input bytes. Record
+manual interventions explicitly (zero is meaningful). In RPC mode one server is
+initialized and every sample is a complete `tools/call` round trip. Check behavior separately: exit zero alone
 does not prove a correct hook or orientation result. No legacy speedup is claimed
 without an equivalent legacy workload, inputs, environment, and sampling method.
 
@@ -121,3 +128,12 @@ history. Its empty Git index supports scanning copied candidates but cannot test
 the host repository's history. Dependency installation has its own cache layer;
 package-manager lists are removed in the installation layer. Building and running
 the image are separate checks; a Containerfile alone is no Linux evidence.
+# Phase 3 focused and live checks
+
+`bun test tests/phase3.test.ts` covers the immutable spine set, manifest failure
+classes, byte-identical rendering, trust/collision outcomes for normal and slash
+use, project-first recall, scanner positive controls, deterministic paginated
+indexes, idempotent closeout, newer-writer refusal, and shared tracker grammar.
+`bun run prove:skills` is an opt-in local compatibility proof described in
+`docs/working-loop.md`; it is not part of `bun verify` because Codex and Hermes
+are external installations.

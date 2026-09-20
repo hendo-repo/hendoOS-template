@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { lstatSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { parseTrackerPrefixes, trackerIdentifier } from "../src/schema/tracker";
 
 export const RULES = {
   PATH_HOME: "R-PUB-PATH-HOME",
@@ -235,14 +236,16 @@ export function configuredLiteralRegex(value: string): RegExp {
   return new RegExp(source, "gi");
 }
 
-/** Match a configured tracker stem with case/separator variants and a numeric id. */
+/** Match one prefix under the same grammar every tracker consumer uses. */
 export function trackerPrefixRegex(value: string): RegExp {
-  const stem = value.replace(/[^A-Za-z0-9]+$/g, "");
-  const parts = literalComponents(stem);
-  const source = parts.length > 1
-    ? parts.map(escapeRegExp).join("[^A-Za-z0-9]*")
-    : escapeRegExp(stem);
-  return new RegExp("\\b" + source + "[^A-Za-z0-9]*\\d+\\b", "gi");
+  const prefixes = parseTrackerPrefixes(value);
+  return new RegExp(trackerIdentifier(prefixes).source, "gi");
+}
+
+export function configuredTrackerPrefixes(raw: string | undefined, extra: string[] = []): LiteralEntry[] {
+  const joined = [raw ?? '', ...extra].filter(Boolean).join(',');
+  if (!joined) return [];
+  return parseTrackerPrefixes(joined).map((value, index) => ({ label: `prefix#${index + 1}`, value }));
 }
 
 export const GIT_ENV_STRIP = [
@@ -381,10 +384,7 @@ function resolvePolicy(options: PublicCheckOptions): ResolvedPolicy {
     ...parseLiteralList(env[ENV_VARS.PRIVATE_TOKENS]),
     ...entriesFrom(options.privateTokens),
   ];
-  const trackerPrefixes = [
-    ...parseLiteralList(env[ENV_VARS.TRACKER_PREFIXES]),
-    ...entriesFrom(options.trackerPrefixes),
-  ];
+  const trackerPrefixes = configuredTrackerPrefixes(env[ENV_VARS.TRACKER_PREFIXES], options.trackerPrefixes);
   const dedupeValues = (entries: LiteralEntry[]): LiteralEntry[] => {
     const seen = new Set<string>();
     const out: LiteralEntry[] = [];
@@ -813,7 +813,7 @@ flags:
   --root <dir>                 scan the git work tree containing <dir> (default: cwd)
   --private-token <L=V|V>      repeatable; private literal; same grammar as
                                ${ENV_VARS.PRIVATE_TOKENS}; value never printed
-  --tracker-prefix <L=P|P>     repeatable; tracker prefix, matches PREFIX<digits>;
+  --tracker-prefix <PREFIX>    repeatable; tracker prefix, matches PREFIX-<digits>;
                                same grammar as ${ENV_VARS.TRACKER_PREFIXES}
   --allow-email <address>      repeatable; option-only e-mail allowance
   --allow-binary-ext <.png>    repeatable; option-only binary extension allowance
@@ -823,7 +823,7 @@ flags:
 
 environment (additive strictness only, never used to weaken the gate):
   ${ENV_VARS.PRIVATE_TOKENS}      comma/newline separated "L=V" or "V" entries
-  ${ENV_VARS.TRACKER_PREFIXES}    comma/newline separated "L=P" or "P" entries
+  ${ENV_VARS.TRACKER_PREFIXES}    comma-separated prefixes such as CURRENT,LEGACY
 
 exit codes: 0 clean | 1 findings or scan errors | 2 usage error or fatal scan error
 `;

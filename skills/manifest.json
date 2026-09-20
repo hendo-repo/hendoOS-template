@@ -1,0 +1,48 @@
+{
+  "schema": "hendoos.skills/v1",
+  "required": ["session-agent", "closeout", "self-audit"],
+  "skills": [
+    {
+      "name": "session-agent",
+      "version": "1.0.0",
+      "source": "hendoos-canonical",
+      "path": "skills/session-agent",
+      "files": ["SKILL.md"],
+      "harnesses": ["codex", "hermes"],
+      "upstream": {
+        "repository": "https://github.com/hendo-repo/hendoOS-bash",
+        "revision": "d0fb34feb4ddb2baaa7c0435a77649e7fdccd311",
+        "path": "capabilities/session-agent.md",
+        "license": "MIT"
+      }
+    },
+    {
+      "name": "closeout",
+      "version": "1.0.0",
+      "source": "hendoos-canonical",
+      "path": "skills/closeout",
+      "files": ["SKILL.md"],
+      "harnesses": ["codex", "hermes"],
+      "upstream": {
+        "repository": "https://github.com/hendo-repo/hendoOS-bash",
+        "revision": "d0fb34feb4ddb2baaa7c0435a77649e7fdccd311",
+        "path": "capabilities/closeout.md",
+        "license": "MIT"
+      }
+    },
+    {
+      "name": "self-audit",
+      "version": "1.0.0",
+      "source": "hendoos-canonical",
+      "path": "skills/self-audit",
+      "files": ["SKILL.md"],
+      "harnesses": ["codex", "hermes"],
+      "upstream": {
+        "repository": "https://github.com/hendo-repo/hendoOS-bash",
+        "revision": "d0fb34feb4ddb2baaa7c0435a77649e7fdccd311",
+        "path": "capabilities/self-audit.md",
+        "license": "MIT"
+      }
+    }
+  ]
+}

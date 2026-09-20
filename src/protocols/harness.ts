@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { isAbsolute } from 'node:path';
 import { JsonValueSchema, TokenSchema } from './validation';
 import { digestOfJson, type Json } from './json';
-import { OperationSchema, OwnerConfigSchema, type Operation } from '../schema/operation';
+import { OperationSchema, OwnerConfigSchema, SourceRevisionSchema, type Operation } from '../schema/operation';
 import type { RuntimeOutcome } from './service';
 
 export const HARNESS_PROTOCOL = 'claude-code-pre-tool-use/1';
@@ -25,17 +25,24 @@ export const SHADOW_REPORT_SCHEMA = 'aos.shadow/v1';
 const Id = TokenSchema.refine(x => x.length <= 128);
 export const AbsolutePathSchema = z.string().min(1).refine(x => isAbsolute(x) &&
   !/[\u0000-\u001f\u007f]/.test(x) && !x.split('/').some(p => p === '.' || p === '..'));
+const SyntheticObservationSchema = z.strictObject({
+  key: Id, availability: z.enum(['available', 'unavailable']), freshness: z.enum(['fresh', 'stale', 'unknown']),
+  completeness: z.enum(['complete', 'partial', 'unknown']), result: z.enum(['present', 'empty', 'no-work', 'unknown']),
+  reasons: z.array(Id).max(8).default([]), value: JsonValueSchema.optional(),
+}).superRefine((observation, ctx) => {
+  const current = observation.availability === 'available' && observation.freshness === 'fresh' &&
+    observation.completeness === 'complete' && observation.result === 'present';
+  if (current && observation.value === undefined) ctx.addIssue({ code: 'custom', message: 'current complete observation requires value' });
+  if (observation.result !== 'present' && observation.value !== undefined) ctx.addIssue({ code: 'custom', message: 'only present observations carry values' });
+});
 export const HookConfigSchema = z.strictObject({
   version: z.literal(1), protocol: z.literal(HARNESS_PROTOCOL),
   schemaVersion: z.literal(1), composeVersion: z.literal(1), contentGeneration: z.int().nonnegative(),
-  ownerId: Id, configRevision: Id, checkerRevision: z.literal('aos-policy/1'),
+  ownerId: Id, configRevision: Id, checkerRevision: z.literal('aos-policy/1'), sourceRevision: SourceRevisionSchema,
   statePath: AbsolutePathSchema, contentRoot: AbsolutePathSchema,
   timeoutMs: z.int().min(1).max(30000),
   ownerPolicy: OwnerConfigSchema.optional(),
-  syntheticObservations: z.array(z.strictObject({ key: Id,
-    status: z.enum(['fresh', 'missing', 'unavailable', 'stale', 'empty', 'incomplete']),
-    value: JsonValueSchema.optional(),
-  })).max(256).default([]),
+  syntheticObservations: z.array(SyntheticObservationSchema).max(256).default([]),
 });
 export type HookConfig = z.infer<typeof HookConfigSchema>;
 
@@ -57,10 +64,10 @@ export function nativeOperation(input: unknown, config: HookConfig): Operation {
     contentGeneration: config.contentGeneration, requestId: event.tool_use_id,
     sessionId: event.session_id, ownerId: config.ownerId, nonce: subjectDigest,
     command: 'gate', scenarioId: 'pre-edit-kernel-plus-declared-reference', subjectDigest,
-    configRevision: config.configRevision, checkerRevision: config.checkerRevision,
+    configRevision: config.configRevision, checkerRevision: config.checkerRevision, sourceRevision: config.sourceRevision,
     timeoutMs: config.timeoutMs, observations: config.syntheticObservations.map(o => ({ ...o,
       provenance: { kind: 'synthetic', source: 'explicit-hook-fixture', subjectDigest,
-        configRevision: config.configRevision, checkerRevision: config.checkerRevision },
+        configRevision: config.configRevision, checkerRevision: config.checkerRevision, sourceRevision: config.sourceRevision },
     })),
   });
 }

@@ -11,11 +11,10 @@
  *
  * ## Membership manifest
  *
- * Records the *expected activated id set* per scenario. A scenario names a harness,
- * an event, a state key set, and the exact ids that must activate. Evaluation is
- * set-equality in both directions: an expected id that does not activate and an
- * activated id that was not expected are both `membership-mismatch`. This is the
- * gate that catches content whose activation conditions silently drifted.
+ * Records the expected activated, activated-kernel, and static-prefix id sets per
+ * scenario. Evaluation is set-equality in both directions. Keeping the static
+ * prefix inventory independent matters because a dormant kernel is still shipped
+ * in the prefix and must not disappear merely because it did not activate.
  *
  * Every path in a manifest is normalized and relative; unsafe paths are rejected
  * without echoing the input. Purity: no I/O, no clock.
@@ -56,6 +55,8 @@ export interface MembershipScenario {
   expectedIds: readonly string[];
   /** Independently authored exact kernel set; never inferred from document tiers. */
   expectedKernelIds: readonly string[];
+  /** Independently authored exact content-id set emitted in the static prefix. */
+  expectedStaticIds: readonly string[];
 }
 
 export interface MembershipManifest {
@@ -147,14 +148,19 @@ export function validateMembershipManifest(
       );
     }
     seen.add(scenario.id);
-    const unique = new Set(scenario.expectedIds);
-    if (unique.size !== scenario.expectedIds.length) {
+    const inventories = [scenario.expectedIds, scenario.expectedKernelIds, scenario.expectedStaticIds];
+    if (inventories.some(ids => new Set(ids).size !== ids.length)) {
       errors.push(
         aosError('membership-mismatch', `scenario \`${scenario.id}\` lists a duplicate expected id`, {
           details: { id: scenario.id },
           id: scenario.id,
         }),
       );
+    }
+    if (scenario.expectedKernelIds.some(id => !scenario.expectedStaticIds.includes(id))) {
+      errors.push(aosError('membership-mismatch', `scenario \`${scenario.id}\` activates a kernel absent from its static prefix`, {
+        id: scenario.id,
+      }));
     }
   }
   return outcome(manifest, errors, errors.length > 0);
@@ -268,6 +274,8 @@ export interface ScenarioEvaluation {
   stateKeys: readonly string[];
   expectedIds: readonly string[];
   actualIds: readonly string[];
+  expectedStaticIds: readonly string[];
+  actualStaticIds: readonly string[];
   /** Expected but not activated. */
   missingIds: readonly string[];
   /** Activated but not expected. */
@@ -318,9 +326,16 @@ export function evaluateMembership(
     const expectedKernel = [...scenario.expectedKernelIds].sort();
     const actualKernel = [...activation.value.kernelIds].sort();
     const kernelExact = JSON.stringify(expectedKernel) === JSON.stringify(actualKernel);
-    const exact = activation.ok && missingIds.length === 0 && extraIds.length === 0 && kernelExact;
+    const expectedStatic = [...scenario.expectedStaticIds].sort();
+    const actualStatic = (documents as readonly ContentDocument[])
+      .filter(document => document.tier === 'kernel' &&
+        (document.targetHarnesses.includes('*') || document.targetHarnesses.includes(scenario.harness)))
+      .map(document => document.id).sort();
+    const staticExact = JSON.stringify(expectedStatic) === JSON.stringify(actualStatic);
+    const setsExact = missingIds.length === 0 && extraIds.length === 0 && kernelExact && staticExact;
+    const exact = activation.ok && setsExact;
 
-    if (!exact) {
+    if (!setsExact) {
       errors.push(
         aosError('membership-mismatch', `scenario \`${scenario.id}\` id set does not match the manifest`, {
           details: {
@@ -329,7 +344,7 @@ export function evaluateMembership(
             extra: extraIds,
             expected: [...expectedSet].sort(),
             actual: actualIds,
-            expectedKernel, actualKernel,
+            expectedKernel, actualKernel, expectedStatic, actualStatic,
           },
           id: scenario.id,
         }),
@@ -343,6 +358,8 @@ export function evaluateMembership(
       stateKeys,
       expectedIds: [...expectedSet].sort(),
       actualIds,
+      expectedStaticIds: expectedStatic,
+      actualStaticIds: actualStatic,
       missingIds,
       extraIds,
       exact,

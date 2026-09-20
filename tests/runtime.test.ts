@@ -12,20 +12,21 @@ const dirs: string[] = [];
 const stores: StateStore[] = [];
 afterEach(() => { for (const db of stores.splice(0)) db.close(); for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 const digest = `sha256:${'a'.repeat(64)}`;
+const sourceRevision = 'a'.repeat(40);
 export function operation(extra: Record<string, unknown> = {}) {
-  return { version: 1, schemaVersion: 1, composeVersion: 1, contentGeneration: 2,
+  return { version: 1, schemaVersion: 1, composeVersion: 1, contentGeneration: 3,
     requestId: 'request-1', sessionId: 'session-1', ownerId: 'owner-1', nonce: 'nonce-1',
     command: 'gate', scenarioId: 'pre-edit-kernel-plus-declared-reference',
-    subjectDigest: digest, configRevision: DEFAULT_CONFIG.revision, checkerRevision: 'aos-policy/1',
-    observations: [{ key: 'verification', status: 'fresh', value: true,
+    subjectDigest: digest, configRevision: DEFAULT_CONFIG.revision, checkerRevision: 'aos-policy/1', sourceRevision,
+    observations: [{ key: 'verification', availability: 'available', freshness: 'fresh', completeness: 'complete', result: 'present', reasons: [], value: true,
       provenance: { kind: 'synthetic', source: 'explicit-test', subjectDigest: digest,
-        configRevision: DEFAULT_CONFIG.revision, checkerRevision: 'aos-policy/1' } }], ...extra };
+        configRevision: DEFAULT_CONFIG.revision, checkerRevision: 'aos-policy/1', sourceRevision } }], ...extra };
 }
 async function setup() {
   const dir = mkdtempSync(join(tmpdir(), 'aos-runtime-')); dirs.push(dir);
   const store = new StateStore(join(dir, 'state.sqlite')); stores.push(store);
   const content = await loadContent(resolve('content'));
-  const service = new RuntimeService({ state: store, content, clock: { timestamp: () => '2026-01-01T00:00:00.000Z', monotonic: () => 0 } });
+  const service = new RuntimeService({ state: store, content, sourceRevision, clock: { timestamp: () => '2026-01-01T00:00:00.000Z', monotonic: () => 0 } });
   return { dir, store, content, service };
 }
 describe('runtime negative controls', () => {
@@ -47,12 +48,20 @@ describe('runtime negative controls', () => {
     expect(result.status).toBe('incomplete');
     expect(result.core?.policy.value.decision).not.toBe('allow');
   });
-  test.each(['missing', 'unavailable', 'stale', 'empty', 'incomplete'])('%s surfaces remain distinct and cannot allow', async status => {
+  test.each([
+    ['unavailable', { availability: 'unavailable' }],
+    ['stale', { freshness: 'stale' }],
+    ['partial', { completeness: 'partial' }],
+    ['empty', { result: 'empty', value: undefined }],
+    ['no-work', { result: 'no-work', value: undefined }],
+  ] as const)('%s surfaces remain distinct and cannot allow', async (_label, patch) => {
     const { service } = await setup();
     const op = operation();
-    op.observations[0]!.status = status;
+    const { value: _removed, ...expected } = patch as typeof patch & { value?: undefined };
+    Object.assign(op.observations[0]!, expected);
+    if ('value' in patch) delete (op.observations[0]! as Record<string, unknown>).value;
     const result = await service.execute(op);
-    expect(result.observations[0]?.status).toBe(status);
+    expect(result.observations[0]).toMatchObject(expected);
     expect(result.core?.policy.value.decision).not.toBe('allow');
     expect(result.status).toBe('incomplete');
   });
@@ -62,8 +71,22 @@ describe('runtime negative controls', () => {
   });
   test('project config cannot override owner authority', async () => {
     const { service } = await setup();
-    expect((await service.execute(operation({ projectConfig: { rules: [{ id: 'all', decision: 'allow' }] } }))).status).toBe('refused');
-    expect((await service.execute(operation({ projectConfig: { gateFailure: 'allow' } }))).status).toBe('refused');
+    for (const field of ['rules', 'gateFailure', 'checkerRevision', 'revision']) {
+      const result = await service.execute(operation({ requestId: `authority-${field}`, projectConfig: { [field]: 'attacker-value' } }));
+      expect(result.status).toBe('refused');
+      expect(result.reason).toBe(`unauthorized project field ${field} from project source`);
+      expect(result.reason).not.toContain('attacker-value');
+    }
+  });
+  test('source revision A cannot reuse evidence or a session pinned to B', async () => {
+    const { service, store, content } = await setup();
+    expect((await service.execute(operation())).status).toBe('complete');
+    const otherRevision = 'b'.repeat(40);
+    expect((await service.execute(operation({ requestId: 'wrong-envelope', sourceRevision: otherRevision,
+      observations: operation().observations.map(observation => ({ ...observation, provenance: { ...observation.provenance, sourceRevision: otherRevision } })) }))).status).toBe('refused');
+    const changed = new RuntimeService({ state: store, content, sourceRevision: otherRevision });
+    expect((await changed.execute(operation({ requestId: 'changed-service', sourceRevision: otherRevision,
+      observations: operation().observations.map(observation => ({ ...observation, provenance: { ...observation.provenance, sourceRevision: otherRevision } })) }))).status).toBe('refused');
   });
   test('generation mismatch and missing scenario refuse', async () => {
     const { service } = await setup();
@@ -73,9 +96,9 @@ describe('runtime negative controls', () => {
   test('mid-session content or config skew refuses before replay', async () => {
     const { service, store, content } = await setup();
     await service.execute(operation());
-    const changed = new RuntimeService({ state: store, content: { ...content, digest: `sha256:${'c'.repeat(64)}` } });
+    const changed = new RuntimeService({ state: store, content: { ...content, digest: `sha256:${'c'.repeat(64)}` }, sourceRevision });
     expect((await changed.execute(operation())).status).toBe('refused');
-    const configured = new RuntimeService({ state: store, content, config: { ...DEFAULT_CONFIG, revision: 'changed' } });
+    const configured = new RuntimeService({ state: store, content, sourceRevision, config: { ...DEFAULT_CONFIG, revision: 'changed' } });
     expect((await configured.execute(operation({ configRevision: 'changed', requestId: 'second' }))).status).toBe('refused');
   });
   test('cancel and deadline never allow; incomplete result is receipted', async () => {
@@ -84,7 +107,7 @@ describe('runtime negative controls', () => {
     const result = await service.execute(operation(), { signal: controller.signal });
     expect(result.status).toBe('incomplete'); expect(result.core).toBeNull(); expect(result.receipt?.gateVerdict).toBe('indeterminate');
     let ticks = 0;
-    const slow = new RuntimeService({ state: store, content, clock: { timestamp: () => '2026-01-01T00:00:00.000Z', monotonic: () => ticks++ * 100 } });
+    const slow = new RuntimeService({ state: store, content, sourceRevision, clock: { timestamp: () => '2026-01-01T00:00:00.000Z', monotonic: () => ticks++ * 100 } });
     expect((await slow.execute(operation({ requestId: 'deadline', timeoutMs: 1 }))).status).toBe('incomplete');
   });
   test('missing source cannot redefine manifest expectations', async () => {
@@ -95,7 +118,7 @@ describe('runtime negative controls', () => {
   });
   test('empty content and reference traversal reject', async () => {
     const { dir, service } = await setup();
-    writeFileSync(join(dir, 'membership.manifest.json'), JSON.stringify({ version: 1, owner: 'aos-core', generation: 2, scenarios: [] }));
+    writeFileSync(join(dir, 'membership.manifest.json'), JSON.stringify({ version: 1, owner: 'aos-core', generation: 3, scenarios: [] }));
     await expect(loadContent(dir)).rejects.toThrow();
     expect((await service.execute(operation({ command: 'reference', referenceId: '../secret' }))).status).toBe('refused');
   });
@@ -116,17 +139,17 @@ test('state survives reopen; same revision cannot hide changed owner rules', asy
   const first = await service.execute(operation());
   store.close(); stores.splice(stores.indexOf(store), 1);
   const reopened = new StateStore(join(dir, 'state.sqlite')); stores.push(reopened);
-  const replay = new RuntimeService({ state: reopened, content });
+  const replay = new RuntimeService({ state: reopened, content, sourceRevision });
   expect(await replay.execute(operation())).toEqual(first);
-  const changed = new RuntimeService({ state: reopened, content, config: { ...DEFAULT_CONFIG, rules: [{ id: 'new', decision: 'deny' }] } });
+  const changed = new RuntimeService({ state: reopened, content, sourceRevision, config: { ...DEFAULT_CONFIG, rules: [{ id: 'new', decision: 'deny' }] } });
   expect((await changed.execute(operation())).status).toBe('refused');
 });
 test('failed receipt generation rolls back the session and outcome together', async () => {
   const { store, content } = await setup();
-  const broken = new RuntimeService({ state: store, content, clock: { timestamp: () => 'bad-time', monotonic: () => 0 } });
+  const broken = new RuntimeService({ state: store, content, sourceRevision, clock: { timestamp: () => 'bad-time', monotonic: () => 0 } });
   expect((await broken.execute(operation())).status).toBe('refused');
   expect(store.receipts('owner-1', 'session-1')).toHaveLength(0);
-  const changed = new RuntimeService({ state: store, content, config: { ...DEFAULT_CONFIG, revision: 'second' } });
+  const changed = new RuntimeService({ state: store, content, sourceRevision, config: { ...DEFAULT_CONFIG, revision: 'second' } });
   const result = await changed.execute(operation({ configRevision: 'second', observations: [] }));
   expect(result.status).toBe('incomplete');
   expect(store.receipts('owner-1', 'session-1')).toHaveLength(1);
@@ -142,7 +165,7 @@ test('reference prose is fetched only when requested and core output is unchange
   const { compose } = await import('../src/compose/index');
   const scenario = content.membership.scenarios.find(s => s.id === 'pre-edit-kernel-plus-declared-reference')!;
   expect(requested.core?.composition).toEqual(compose({ id: scenario.event, harness: 'default' }, { keys: [], referenceIds: [reference.id] }, {
-    documents: content.documents, totalByteBudget: DEFAULT_CONFIG.totalByteBudget, mustFireIds: scenario.expectedIds, mustFireKernelIds: scenario.expectedKernelIds,
+    documents: content.documents, totalByteBudget: DEFAULT_CONFIG.totalByteBudget, mustFireIds: scenario.expectedIds, mustFireKernelIds: scenario.expectedKernelIds, mustFireStaticIds: scenario.expectedStaticIds,
   }));
   const tiers = requested.receipt!.byteTiers;
   expect(tiers.kernel + tiers.reference + tiers.framework).toBe(tiers.total);
@@ -173,6 +196,17 @@ test('cancelled replay cannot return a persisted allow; original receipt remains
   expect(cancelled.status).toBe('incomplete'); expect(cancelled.core).toBeNull(); expect(cancelled.receipt).toBeNull();
   expect(store.receipts('owner-1', 'session-1')).toEqual([first.receipt!]);
   expect(await service.execute(operation())).toEqual(first);
+});
+test('receipt retention is bounded and preserves unresolved evidence ahead of resolved history', async () => {
+  const { service, store } = await setup();
+  expect((await service.execute(operation({ requestId: 'unresolved', observations: [] }))).status).toBe('incomplete');
+  for (let index = 0; index < 100; index++) {
+    expect((await service.execute(operation({ requestId: `resolved-${index}` }))).status).toBe('complete');
+  }
+  const receipts = store.receipts('owner-1', 'session-1', 100);
+  expect(receipts).toHaveLength(100);
+  expect(receipts.some(receipt => receipt.requestId === 'unresolved')).toBe(true);
+  expect(receipts.some(receipt => receipt.requestId === 'resolved-0')).toBe(false);
 });
 
 /**
@@ -234,7 +268,7 @@ describe('owner configuration accepts only runtime-suppliable rule conditions', 
     ];
     expect(OwnerConfigSchema.safeParse(ownerConfig(rules)).success).toBe(true);
     const config = ownerConfig(rules);
-    const service = new RuntimeService({ state: store, content, config });
+    const service = new RuntimeService({ state: store, content, sourceRevision, config });
     const result = await service.execute(operation({ configRevision: config.revision }));
     expect(result.receipt?.gateVerdict).toBe('allow');
     // Supported scope conditions are genuinely evaluated: each deny is out of
@@ -252,7 +286,7 @@ describe('owner configuration accepts only runtime-suppliable rule conditions', 
   });
   test('RuntimeService refuses an unsupported owner rule before any state is written', async () => {
     const { store, content } = await setup();
-    expect(() => new RuntimeService({ state: store, content,
+    expect(() => new RuntimeService({ state: store, content, sourceRevision,
       config: ownerConfig([{ id: 'content-deny', decision: 'deny', contentIds: ['kernel-doc'] }]) })).toThrow(/contentIds/);
     expect(store.receipts('owner-1', 'session-1')).toEqual([]);
   });

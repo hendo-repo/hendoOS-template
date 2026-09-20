@@ -17,7 +17,7 @@ Private literal and tracker-prefix values must be supplied locally:
 
 ```sh
 export AOS_CHECK_PUBLIC_PRIVATE_TOKENS='operator=example-private-literal'
-export AOS_CHECK_PUBLIC_TRACKER_PREFIXES='tracker=PRIVATE-'
+export AOS_CHECK_PUBLIC_TRACKER_PREFIXES='CURRENT,LEGACY'
 ```
 
 Never store real values in the repository, manifest, fixtures, workflow, or

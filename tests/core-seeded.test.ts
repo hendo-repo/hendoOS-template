@@ -29,7 +29,9 @@ function documentsOf(sources: readonly ContentSourceFile[]) {
 }
 
 // Expectations are fixture-authored and remain fixed when the corpus mutates.
-const corpusIndex = (...args: Parameters<typeof baseCorpusIndex>) => ({ ...baseCorpusIndex(...args), mustFireKernelIds: ['seeded-kernel'] });
+const corpusIndex = (...args: Parameters<typeof baseCorpusIndex>) => ({
+  ...baseCorpusIndex(...args), mustFireKernelIds: ['seeded-kernel'], mustFireStaticIds: ['seeded-kernel'],
+});
 
 describe('seeded defects: control passes', () => {
   test('the unseeded control composes clean', () => {
@@ -172,7 +174,7 @@ describe('shipped corpus: content/ and membership.manifest.json', () => {
       const result = compose(
         { id: scenario.event, harness: scenario.harness },
         { keys: [...(scenario.stateKeys ?? [])] },
-        { documents: compiled.value.documents, mustFireIds: scenario.expectedIds, mustFireKernelIds: scenario.expectedKernelIds },
+        { documents: compiled.value.documents, mustFireIds: scenario.expectedIds, mustFireKernelIds: scenario.expectedKernelIds, mustFireStaticIds: scenario.expectedStaticIds },
       );
       // The only tolerated degradation is "nothing activated" being reported as
       // empty-selection; a membership mismatch is never tolerated.

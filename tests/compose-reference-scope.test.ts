@@ -75,6 +75,7 @@ function indexFor(docs: readonly ContentDocument[], mustFireIds: string[]): Comp
     staticBlocks: [{ id: 'framework-rules', text: '<!-- aos:static -->\nFRAMEWORK RULES\n' }],
     mustFireIds,
     mustFireKernelIds: mustFireIds,
+    mustFireStaticIds: docs.filter((document) => document.tier === 'kernel').map((document) => document.id).sort(),
   };
 }
 
@@ -174,5 +175,18 @@ describe('compose: heading anchors ignore fenced code', () => {
     expect(result.value.diagnostics.declaredReferenceIds).toEqual(['depth']);
     expect(result.value.payload.dynamicSuffix).toContain('# Real Heading');
     expect(result.ok).toBe(true);
+  });
+
+  test.each(['```', '~~~'])('an unterminated %s fence hides headings through EOF', (marker) => {
+    const result = anchorScenario('hidden-heading', ['# Real Heading', '', marker, '# Hidden Heading'].join('\n'));
+    expect(result.errors.some((error) => error.code === 'reference-declared-missing')).toBe(true);
+    expect(result.value.diagnostics.declaredReferenceIds).toEqual([]);
+  });
+
+  test.each(['```', '~~~'])('an unterminated %s fence cannot declare references through EOF', (marker) => {
+    const docs = documents([marker, 'References: depth'].join('\n'));
+    const result = compose({ id: 'task-start', harness: 'default' }, { referenceIds: ['depth'] }, indexFor(docs, ['kernel-live']));
+    expect(result.errors.some((error) => error.code === 'reference-unresolved')).toBe(true);
+    expect(result.value.diagnostics.declaredReferenceIds).toEqual([]);
   });
 });

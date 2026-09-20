@@ -25,7 +25,7 @@ function rules(report: { findings: { ruleId: string }[]; errors: { ruleId: strin
 const home = () => '/' + ['Us', 'ers'].join('') + '/' + crypto.randomUUID() + '/private';
 const email = () => crypto.randomUUID() + '@' + 'fixture.invalid';
 const key = () => ['gh', 'p_'].join('') + 'X'.repeat(36);
-const tracker = () => ['SYN', 'TH'].join('') + '-';
+const tracker = () => ['SYN', 'TH'].join('');
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
 describe('public gate, real Git/filesystem controls', () => {
@@ -61,19 +61,19 @@ describe('public gate, real Git/filesystem controls', () => {
   });
   test('parent environment literals and prefixes add strictness without exposing content', () => {
     const root = repo(); const token = crypto.randomUUID(); const prefix = tracker();
-    put(root, 'README.md', token + '\n' + prefix + '12345678');
+    put(root, 'README.md', token + '\n' + prefix + '-12345678');
     const result = runCli(['--root', root, '--json'], { ...env,
       [ENV_VARS.PRIVATE_TOKENS]: 'identity=' + token,
-      [ENV_VARS.TRACKER_PREFIXES]: 'team=' + prefix });
+      [ENV_VARS.TRACKER_PREFIXES]: prefix });
     expect(result.code).toBe(1); expect(rules(result.report!)).toContain(RULES.PRIVATE_TOKEN);
     expect(rules(result.report!)).toContain(RULES.TRACKER_REF); expect(result.stdout).not.toContain(token);
   });
-  test('configured private identities and trackers catch case and component separator variants', () => {
+  test('configured private identities catch separator variants and trackers use the shared exact grammar', () => {
     const root = repo();
     const identity = 'Private' + crypto.randomUUID().replaceAll('-', '') + 'Identity';
-    const tracker = 'FixturePrivate-';
+    const tracker = 'FixturePrivate';
     const splitIdentity = identity.replace(/([a-z0-9])([A-Z])/g, '$1/$2').toLowerCase();
-    put(root, 'docs/' + splitIdentity + '.md', 'reference ' + tracker.toLowerCase().replace('-', '_') + '42');
+    put(root, 'docs/' + splitIdentity + '.md', 'reference ' + tracker.toLowerCase() + '-42');
     const report = scanPublicRepo({ root, env, privateTokens: [identity], trackerPrefixes: [tracker] });
     expect(rules(report)).toContain(RULES.PATH_PRIVATE_TOKEN);
     expect(rules(report)).toContain(RULES.TRACKER_REF);
@@ -140,7 +140,7 @@ describe('public gate, real Git/filesystem controls', () => {
     const identity = email(); const privateText = crypto.randomUUID(); const prefix = tracker();
     // Build fixture objects only; never commit or update this workspace.
     const tree = git(root, 'mktree');
-    const body = `tree ${tree}\nauthor Fixture <${identity}> 1 +0000\ncommitter Fixture <${identity}> 1 +0000\n\n${privateText}\n${prefix}42\n`;
+    const body = `tree ${tree}\nauthor Fixture <${identity}> 1 +0000\ncommitter Fixture <${identity}> 1 +0000\n\n${privateText}\n${prefix}-42\n`;
     const object = Bun.spawnSync(['git', '-C', root, 'hash-object', '-t', 'commit', '-w', '--stdin'], { env, stdin: Buffer.from(body) });
     expect(object.exitCode).toBe(0);
     git(root, 'update-ref', 'HEAD', object.stdout.toString().trim());

@@ -61,7 +61,7 @@ export async function main(args: string[]): Promise<number> {
     const content = await loadContent(config.contentRoot);
     if (performance.now() >= deadline) abort.abort();
     state = new StateStore(config.statePath);
-    const service = new RuntimeService({ state, content, config: config.ownerPolicy });
+    const service = new RuntimeService({ state, content, sourceRevision: config.sourceRevision, config: config.ownerPolicy });
     const result = await service.execute(operation, { signal: abort.signal });
     const reply = hookReply(result);
     // Incomplete shadow runs stay visible without changing the host's decision.

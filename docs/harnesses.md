@@ -59,9 +59,10 @@ const rendered = await renderHarness({
   owner: 'demo-owner', generation: 1,
   config: {
     version: 1, protocol: HARNESS_PROTOCOL, schemaVersion: 1, composeVersion: 1,
-    contentGeneration: 2, configRevision: 'aos-runtime-default/1',
-    checkerRevision: 'aos-policy/1', timeoutMs: 5000,
-    syntheticObservations: [{ key: 'verification', status: 'fresh', value: true }],
+    contentGeneration: 3, configRevision: 'aos-runtime-default/1',
+    checkerRevision: 'aos-policy/1', sourceRevision: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', timeoutMs: 5000,
+    syntheticObservations: [{ key: 'verification', availability: 'available', freshness: 'fresh',
+      completeness: 'complete', result: 'present', reasons: [], value: true }],
   },
 });
 const report = await install({

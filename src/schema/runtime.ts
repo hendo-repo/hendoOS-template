@@ -58,6 +58,7 @@ export const ComposeIndexSchema = z.strictObject({
   totalByteBudget: z.int().positive().optional(),
   mustFireIds: UniqueTokensSchema.optional(),
   mustFireKernelIds: UniqueTokensSchema.optional(),
+  mustFireStaticIds: UniqueTokensSchema.optional(),
 });
 
 export const PolicyEventRuntimeSchema = ActivationEventSchema.extend({ intent: NON_EMPTY.optional() });
@@ -106,6 +107,7 @@ export const MembershipScenarioRuntimeSchema = z.strictObject({
   stateKeys: UniqueTokensSchema.optional(),
   expectedIds: UniqueTokensSchema,
   expectedKernelIds: UniqueTokensSchema,
+  expectedStaticIds: UniqueTokensSchema,
 });
 export const MembershipManifestRuntimeSchema = z.strictObject({
   version: z.literal(1), owner: NON_EMPTY, generation: z.int().nonnegative(),

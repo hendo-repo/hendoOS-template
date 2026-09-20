@@ -76,6 +76,12 @@ afterEach(() => {
 });
 
 describe("public export manifest", () => {
+  test("ships the test-only installer helper required by the allowlisted suite", () => {
+    const manifest = parsePublicExportManifest(readFileSync(join(import.meta.dir, '..', MANIFEST_PATH), 'utf8'));
+    expect(manifest.files).toContain('src/effects/install-testing.ts');
+    expect(manifest.files).toContain('tests/install.test.ts');
+  });
+
   test("is strict, exact, sorted, self-exporting, and case collision safe", () => {
     const valid = {
       schema: EXPORT_SCHEMA,
@@ -142,13 +148,13 @@ describe("revision-bound public export", () => {
     const trackerStem = "FixturePrivate";
     const source = await sourceRepo({
       "README.md": identity.toLocaleLowerCase("en-US") + "\n" +
-        trackerStem.toLocaleLowerCase("en-US") + "_418\n",
+        trackerStem.toLocaleLowerCase("en-US") + "-418\n",
     });
     let error: unknown;
     try {
       await runExport(source, {
         AOS_CHECK_PUBLIC_PRIVATE_TOKENS: "operator=" + identity,
-        AOS_CHECK_PUBLIC_TRACKER_PREFIXES: "tracker=" + trackerStem + "-",
+        AOS_CHECK_PUBLIC_TRACKER_PREFIXES: trackerStem,
       });
     } catch (caught) { error = caught; }
     expect(error).toBeInstanceOf(PublicExportError);

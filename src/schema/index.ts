@@ -96,6 +96,8 @@ export {
   parseOrErrors,
 } from './runtime';
 
+export { parseTrackerPrefixes, trackerIdentifier, parseTrackerIdentifier, TrackerPrefixError } from './tracker';
+
 /**
  * Protocol primitives re-exported for convenience: `Outcome`, `AosError` and `Json`
  * are the vocabulary of every public signature below, so a consumer of the schema

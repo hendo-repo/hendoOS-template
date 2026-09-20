@@ -1,7 +1,7 @@
 {
   "version": 1,
   "owner": "aos-core",
-  "generation": 2,
+  "generation": 3,
   "scenarios": [
     {
       "id": "session-start-default",
@@ -14,6 +14,12 @@
       "expectedKernelIds": [
         "discipline-kernel",
         "routing-notes"
+      ],
+      "expectedStaticIds": [
+        "closeout-discipline",
+        "discipline-kernel",
+        "routing-notes",
+        "verification-posture"
       ]
     },
     {
@@ -31,6 +37,12 @@
       "expectedKernelIds": [
         "discipline-kernel",
         "routing-notes"
+      ],
+      "expectedStaticIds": [
+        "closeout-discipline",
+        "discipline-kernel",
+        "routing-notes",
+        "verification-posture"
       ]
     },
     {
@@ -44,6 +56,12 @@
       ],
       "expectedKernelIds": [
         "discipline-kernel",
+        "verification-posture"
+      ],
+      "expectedStaticIds": [
+        "closeout-discipline",
+        "discipline-kernel",
+        "routing-notes",
         "verification-posture"
       ]
     },
@@ -62,6 +80,12 @@
       "expectedKernelIds": [
         "discipline-kernel",
         "verification-posture"
+      ],
+      "expectedStaticIds": [
+        "closeout-discipline",
+        "discipline-kernel",
+        "routing-notes",
+        "verification-posture"
       ]
     },
     {
@@ -74,6 +98,12 @@
       ],
       "expectedKernelIds": [
         "verification-posture"
+      ],
+      "expectedStaticIds": [
+        "closeout-discipline",
+        "discipline-kernel",
+        "routing-notes",
+        "verification-posture"
       ]
     },
     {
@@ -85,6 +115,12 @@
         "verification-recipes"
       ],
       "expectedKernelIds": [
+        "verification-posture"
+      ],
+      "expectedStaticIds": [
+        "closeout-discipline",
+        "discipline-kernel",
+        "routing-notes",
         "verification-posture"
       ]
     },
@@ -100,6 +136,12 @@
       ],
       "expectedKernelIds": [
         "routing-notes"
+      ],
+      "expectedStaticIds": [
+        "closeout-discipline",
+        "discipline-kernel",
+        "routing-notes",
+        "verification-posture"
       ]
     },
     {
@@ -107,7 +149,13 @@
       "harness": "default",
       "event": "task-pivot",
       "expectedIds": [],
-      "expectedKernelIds": []
+      "expectedKernelIds": [],
+      "expectedStaticIds": [
+        "closeout-discipline",
+        "discipline-kernel",
+        "routing-notes",
+        "verification-posture"
+      ]
     },
     {
       "id": "capability-query-routes-only",
@@ -118,6 +166,12 @@
       ],
       "expectedKernelIds": [
         "routing-notes"
+      ],
+      "expectedStaticIds": [
+        "closeout-discipline",
+        "discipline-kernel",
+        "routing-notes",
+        "verification-posture"
       ]
     },
     {
@@ -129,6 +183,12 @@
       ],
       "expectedKernelIds": [
         "discipline-kernel"
+      ],
+      "expectedStaticIds": [
+        "closeout-discipline",
+        "discipline-kernel",
+        "routing-notes",
+        "verification-posture"
       ]
     },
     {
@@ -140,6 +200,12 @@
       ],
       "expectedKernelIds": [
         "closeout-discipline"
+      ],
+      "expectedStaticIds": [
+        "closeout-discipline",
+        "discipline-kernel",
+        "routing-notes",
+        "verification-posture"
       ]
     },
     {
@@ -151,6 +217,12 @@
       ],
       "expectedKernelIds": [
         "closeout-discipline"
+      ],
+      "expectedStaticIds": [
+        "closeout-discipline",
+        "discipline-kernel",
+        "routing-notes",
+        "verification-posture"
       ]
     },
     {
@@ -158,14 +230,21 @@
       "harness": "unlisted-harness",
       "event": "session-start",
       "expectedIds": [],
-      "expectedKernelIds": []
+      "expectedKernelIds": [],
+      "expectedStaticIds": []
     },
     {
       "id": "unknown-event-activates-nothing",
       "harness": "default",
       "event": "no-such-event",
       "expectedIds": [],
-      "expectedKernelIds": []
+      "expectedKernelIds": [],
+      "expectedStaticIds": [
+        "closeout-discipline",
+        "discipline-kernel",
+        "routing-notes",
+        "verification-posture"
+      ]
     }
   ]
 }

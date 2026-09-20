@@ -20,8 +20,15 @@ export interface Receipt {
   requestDigest: string; payloadHash: string; schemaVersion: number; composeVersion: number;
   contentGeneration: number; contentDigest: string; subjectDigest: string; configRevision: string;
   configDigest: string; checkerRevision: string; timestamp: string;
+  sourceRevision: string;
   byteTiers: { kernel: number; reference: number; framework: number; total: number };
   gateVerdict: 'allow' | 'deny' | 'indeterminate'; provisional: true;
+  trace: {
+    command: Operation['command']; scenarioId: string; outcomeStatus: RuntimeOutcome['status']; reason: string | null;
+    compositionCodes: string[]; policyDecision: PolicyVerdict['decision'];
+    allowedBy: string[]; deniedBy: string[]; indeterminateBy: string[];
+    observations: { key: string; availability: RuntimeObservation['availability']; freshness: RuntimeObservation['freshness']; completeness: RuntimeObservation['completeness']; result: RuntimeObservation['result'] }[];
+  };
 }
 export interface RuntimeOutcome {
   status: 'complete' | 'incomplete' | 'refused'; provisional: true; enforcement: false;
@@ -37,13 +44,16 @@ export class RuntimeService {
   private config: OwnerConfig;
   private clock: ClockAdapter;
   private state: StateStore;
-  constructor(options: { state: StateStore; content: LoadedContent; config?: unknown; clock?: ClockAdapter }) {
+  private sourceRevision: string;
+  constructor(options: { state: StateStore; content: LoadedContent; sourceRevision: string; config?: unknown; clock?: ClockAdapter }) {
     this.state = options.state;
     this.content = structuredClone(options.content);
     this.config = OwnerConfigSchema.parse(options.config ?? DEFAULT_CONFIG);
+    this.sourceRevision = options.sourceRevision;
+    if (!/^[a-f0-9]{40}$/.test(this.sourceRevision)) throw new Error('invalid source revision');
     this.clock = options.clock ?? { timestamp: () => new Date().toISOString(), monotonic: () => performance.now() };
   }
-  get handshake() { return { version: 1, schemaVersion: 1, composeVersion: 1, contentGeneration: this.content.generation, contentDigest: this.content.digest }; }
+  get handshake() { return { version: 1, schemaVersion: 1, composeVersion: 1, contentGeneration: this.content.generation, contentDigest: this.content.digest, sourceRevision: this.sourceRevision }; }
   get resources() {
     return this.content.documents.filter(d => d.tier === 'reference').map(d => ({ uri: `aos://reference/${d.id}`, name: d.id, mimeType: 'text/markdown' }));
   }
@@ -57,10 +67,17 @@ export class RuntimeService {
     const json = safeParse(JsonValueSchema, input);
     if (!json.success) return refused('operation must be plain JSON');
     if (Buffer.byteLength(JSON.stringify(json.data)) > MAX_INPUT_BYTES) return refused('operation input limit exceeded');
+    const raw = json.data as Record<string, unknown>;
+    const project = raw.projectConfig;
+    if (project && typeof project === 'object' && !Array.isArray(project)) {
+      for (const field of ['gateFailure', 'rules', 'checkerRevision', 'revision']) {
+        if (Object.hasOwn(project, field)) return refused(`unauthorized project field ${field} from project source`);
+      }
+    }
     const parsed = safeParse(OperationSchema, input);
     if (!parsed.success) return refused('invalid operation envelope or unauthorized configuration');
     const op = parsed.data;
-    if (op.contentGeneration !== this.content.generation || op.configRevision !== this.config.revision || op.checkerRevision !== this.config.checkerRevision) return refused('version/generation/config handshake mismatch');
+    if (op.contentGeneration !== this.content.generation || op.configRevision !== this.config.revision || op.checkerRevision !== this.config.checkerRevision || op.sourceRevision !== this.sourceRevision) return refused('version/generation/config/source handshake mismatch');
     const scenario = this.content.membership.scenarios.find(s => s.id === op.scenarioId);
     if (!scenario || scenario.harness !== 'default') return refused('unknown generic scenario');
     if (op.command === 'reference' && !this.content.documents.some(d => d.id === op.referenceId && d.tier === 'reference')) return refused('unknown reference');
@@ -73,14 +90,14 @@ export class RuntimeService {
     try {
       return this.state.transact(op.ownerId, op.sessionId, op.requestId, requestDigest, {
         generation: this.content.generation, contentDigest: this.content.digest, configRevision: op.configRevision,
-        configDigest, checkerRevision: op.checkerRevision,
+        configDigest, checkerRevision: op.checkerRevision, sourceRevision: op.sourceRevision,
       }, () => {
         let core: RuntimeOutcome['core'] = null;
         let reason: string | null = null;
         const observations = op.observations.map(observation => {
           const p = observation.provenance;
-          return p.subjectDigest === op.subjectDigest && p.configRevision === op.configRevision && p.checkerRevision === op.checkerRevision
-            ? observation : { ...observation, status: 'incomplete' as const };
+          return p.subjectDigest === op.subjectDigest && p.configRevision === op.configRevision && p.checkerRevision === op.checkerRevision && p.sourceRevision === op.sourceRevision
+            ? observation : { ...observation, completeness: 'partial' as const, reasons: [...observation.reasons, 'provenance-mismatch'] };
         });
         if (expired()) reason = options.signal?.aborted ? 'cancelled' : 'deadline exceeded';
         else {
@@ -88,15 +105,18 @@ export class RuntimeService {
           const state = { keys: [...(scenario.stateKeys ?? [])], referenceIds: op.referenceId ? [op.referenceId] : [] };
           const composition = compose(event, state, { documents: this.content.documents,
             totalByteBudget: op.projectConfig?.totalByteBudget ?? this.config.totalByteBudget,
-            mustFireIds: scenario.expectedIds, mustFireKernelIds: scenario.expectedKernelIds });
+            mustFireIds: scenario.expectedIds, mustFireKernelIds: scenario.expectedKernelIds,
+            mustFireStaticIds: scenario.expectedStaticIds });
           const policy = evaluatePolicy(event, { subjectDigest: op.subjectDigest, observations: observations.map(o => ({
-            key: o.key, status: o.status === 'empty' || o.status === 'incomplete' ? 'unavailable' : o.status,
-            ...(o.value === undefined ? {} : { value: o.value }),
+            key: o.key,
+            status: o.availability === 'unavailable' ? 'unavailable' as const : o.freshness === 'stale' ? 'stale' as const :
+              o.availability === 'available' && o.freshness === 'fresh' && o.completeness === 'complete' && o.result === 'present' ? 'fresh' as const : 'missing' as const,
+            ...(o.result !== 'present' || o.value === undefined ? {} : { value: o.value }),
           })) }, this.config.rules, { configRevision: op.configRevision, checkerRevision: op.checkerRevision });
           core = { composition, policy };
           if (expired()) { reason = options.signal?.aborted ? 'cancelled' : 'deadline exceeded'; core = null; }
           else if (!composition.ok || composition.degraded) reason = 'composition incomplete';
-          else if (!observations.length || observations.some(o => o.status !== 'fresh') || policy.value.decision === 'indeterminate') reason = 'observations or policy incomplete';
+          else if (!observations.length || observations.some(o => o.availability !== 'available' || o.freshness !== 'fresh' || o.completeness !== 'complete' || o.result !== 'present') || policy.value.decision === 'indeterminate') reason = 'observations or policy incomplete';
         }
         let result: RuntimeOutcome = { status: reason ? 'incomplete' : 'complete', provisional: true, enforcement: false,
           reason, observations, core, receipt: null };
@@ -123,7 +143,14 @@ export class RuntimeService {
     return { version: 1, requestId: op.requestId, sessionId: op.sessionId, ownerId: op.ownerId, nonce: op.nonce,
       requestDigest, payloadHash: payload?.hash ?? digestOfString(''), schemaVersion: op.schemaVersion, composeVersion: op.composeVersion,
       contentGeneration: op.contentGeneration, contentDigest: this.content.digest, subjectDigest: op.subjectDigest,
-      configRevision: op.configRevision, configDigest, checkerRevision: op.checkerRevision, timestamp, byteTiers: tiers,
-      gateVerdict: result.status === 'complete' ? result.core!.policy.value.decision : 'indeterminate', provisional: true };
+      configRevision: op.configRevision, configDigest, checkerRevision: op.checkerRevision, sourceRevision: op.sourceRevision, timestamp, byteTiers: tiers,
+      gateVerdict: result.status === 'complete' ? result.core!.policy.value.decision : 'indeterminate', provisional: true,
+      trace: { command: op.command, scenarioId: op.scenarioId, outcomeStatus: result.status, reason: result.reason,
+        compositionCodes: (result.core?.composition.errors ?? []).map(error => error.code).slice(0, 64),
+        policyDecision: result.core?.policy.value.decision ?? 'indeterminate',
+        allowedBy: [...(result.core?.policy.value.evidence.allowedBy ?? [])].slice(0, 256),
+        deniedBy: [...(result.core?.policy.value.evidence.deniedBy ?? [])].slice(0, 256),
+        indeterminateBy: [...(result.core?.policy.value.evidence.indeterminateBy ?? [])].slice(0, 256),
+        observations: result.observations.slice(0, 256).map(({ key, availability, freshness, completeness, result }) => ({ key, availability, freshness, completeness, result })) } };
   }
 }

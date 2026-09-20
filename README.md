@@ -24,16 +24,18 @@ anything.
 | `src/effects/render.ts` | Stages a self-contained delivery; returns a strict build manifest | Implemented |
 | `src/effects/install.ts` | The only installer writer: journaled install, uninstall, recovery | Implemented |
 | `src/effects/drift.ts` | Read-only drift detection against an independent manifest | Implemented |
+| `src/edges/working-loop.ts` | Explicit JSON edge for spine skills, durable recall/indexes, and idempotent closeout | Implemented for Codex and Hermes project roots |
 | `src/edges/hook.ts` | Native `PreToolUse` adapter (`Edit`/`Write`, POSIX) | Implemented as a **shadow test adapter**: it reports `would-allow`/`would-deny`/`indeterminate` and emits no native permission decision |
 | `src/state/store.ts` | SQLite receipt/state store | Implemented |
 | `content/` | Starter corpus and membership manifest | Implemented (generation 2) |
-| `scripts/` | `verify.ts`, `check-public.ts`, `check-architecture.ts`, `benchmark.ts` | Implemented |
+| `scripts/` | Verification, public scan/export, benchmark, and opt-in live skill proof | Implemented |
 | `public-export.manifest.json`, `scripts/export-public.ts` | Revision-bound, exact-allowlist public template export | Implemented; publication still requires reviewed GitHub changes |
 | `templates/vault/` | Empty public durable-knowledge scaffold | Implemented |
 
-The `content/` corpus is a small starter set, not a complete framework port. The
-hook adapter covers one harness, one event, and two tools. No vendor version is
-asserted.
+The `content/` corpus is a small starter set, not a complete framework port. Only
+the three accepted OS-spine skills (`session-agent`, `closeout`, `self-audit`)
+are canonical; no general skill library is loaded. The hook adapter covers one
+harness, one event, and two tools. No vendor version is asserted.
 
 ## Install dependencies
 
@@ -180,7 +182,7 @@ content/    starter corpus and membership manifest
 config/     private portable operator data (never publicly exported)
 docs/       contracts, install, drift, harnesses, runtime, testing, support
 scripts/    verification gates, public-source scan, architecture check, benchmark
-skills/     reviewed canonical skills (currently no imported packages)
+skills/     exactly three reviewed OS-spine skills plus pinned provenance
 src/        core (schema, compose, policy, protocols), effects, edges, state
 templates/  clean public examples and empty vault scaffold
 tests/      Bun test suites

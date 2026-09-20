@@ -1,9 +1,11 @@
 /** Operational state only. Content/config remain plain text outside SQLite. */
 import { Database } from 'bun:sqlite';
 import type { RuntimeOutcome, Receipt } from '../protocols/service';
-export interface SessionPin { generation: number; contentDigest: string; configRevision: string; configDigest: string; checkerRevision: string }
+export interface SessionPin { generation: number; contentDigest: string; configRevision: string; configDigest: string; checkerRevision: string; sourceRevision: string }
 export class StateConflict extends Error {}
 export class ReplayInterrupted extends Error {}
+export const RECEIPT_MAX_BYTES = 16 * 1024;
+export const RECEIPT_RETENTION_PER_SESSION = 100;
 export class StateStore {
   private db: Database;
   constructor(path: string) {
@@ -28,8 +30,20 @@ export class StateStore {
       }
       const result = produce();
       if (!result.receipt) throw new Error('atomic outcome requires receipt');
+      const encodedOutcome = JSON.stringify(result);
+      const encodedReceipt = JSON.stringify(result.receipt);
+      if (Buffer.byteLength(encodedReceipt) > RECEIPT_MAX_BYTES) throw new Error('receipt exceeds storage bound');
       if (!existing) this.db.query('INSERT INTO sessions VALUES(?,?,?)').run(owner, session, encodedPin);
-      this.db.query('INSERT INTO outcomes VALUES(?,?,?,?,?,?)').run(owner, session, request, digest, JSON.stringify(result), JSON.stringify(result.receipt));
+      this.db.query('INSERT INTO outcomes VALUES(?,?,?,?,?,?)').run(owner, session, request, digest, encodedOutcome, encodedReceipt);
+      const count = this.db.query('SELECT COUNT(*) AS count FROM outcomes WHERE owner=? AND session=?')
+        .get(owner, session) as { count: number };
+      if (count.count > RECEIPT_RETENTION_PER_SESSION) {
+        // Prefer evicting the oldest resolved record. Incomplete/refused evidence
+        // survives while resolved evidence exists, subject to the same hard cap.
+        this.db.query(`DELETE FROM outcomes WHERE rowid=(SELECT rowid FROM outcomes WHERE owner=? AND session=?
+          ORDER BY CASE WHEN json_extract(outcome,'$.status')='complete' THEN 0 ELSE 1 END, rowid ASC LIMIT 1)`)
+          .run(owner, session);
+      }
       return result;
     }).immediate();
   }

@@ -6,11 +6,12 @@ Run from the source checkout with Bun. Dependencies must already be installed.
 
 ```sh
 bun src/edges/cli.ts --help
-bun src/edges/cli.ts orient --state /tmp/aos.sqlite --content ./content --request ./orient.json
-bun src/edges/cli.ts gate --state /tmp/aos.sqlite --content ./content --request ./gate.json
-bun src/edges/cli.ts reference --state /tmp/aos.sqlite --content ./content --request ./reference.json
-bun src/edges/cli.ts receipts --state /tmp/aos.sqlite --content ./content --owner demo --session demo --limit 20
-bun src/edges/cli.ts serve --state /tmp/aos.sqlite --content ./content
+bun src/edges/cli.ts orient --state /tmp/aos.sqlite --content ./content --source-revision "$REV" --request ./orient.json
+bun src/edges/cli.ts gate --state /tmp/aos.sqlite --content ./content --source-revision "$REV" --request ./gate.json
+bun src/edges/cli.ts closeout --state /tmp/aos.sqlite --content ./content --source-revision "$REV" --request ./closeout.json
+bun src/edges/cli.ts reference --state /tmp/aos.sqlite --content ./content --source-revision "$REV" --request ./reference.json
+bun src/edges/cli.ts receipts --state /tmp/aos.sqlite --content ./content --source-revision "$REV" --owner demo --session demo --limit 20
+bun src/edges/cli.ts serve --state /tmp/aos.sqlite --content ./content --source-revision "$REV"
 ```
 
 Create the state file's parent directory first. Each operation accepts one JSON document on stdin instead of `--request`. No paths, owner IDs, sessions, live homes, or harness settings are inferred. No tracker calls, legacy markers, subprocesses, daemon, or remote service are used.
@@ -22,7 +23,7 @@ A complete `gate.json` example for the shipped generation:
   "version": 1,
   "schemaVersion": 1,
   "composeVersion": 1,
-  "contentGeneration": 2,
+  "contentGeneration": 3,
   "requestId": "demo-gate-1",
   "sessionId": "demo",
   "ownerId": "demo",
@@ -32,17 +33,23 @@ A complete `gate.json` example for the shipped generation:
   "subjectDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "configRevision": "aos-runtime-default/1",
   "checkerRevision": "aos-policy/1",
+  "sourceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   "timeoutMs": 5000,
   "observations": [{
     "key": "verification",
-    "status": "fresh",
+    "availability": "available",
+    "freshness": "fresh",
+    "completeness": "complete",
+    "result": "present",
+    "reasons": [],
     "value": true,
     "provenance": {
       "kind": "synthetic",
       "source": "explicit-demo",
       "subjectDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "configRevision": "aos-runtime-default/1",
-      "checkerRevision": "aos-policy/1"
+      "checkerRevision": "aos-policy/1",
+      "sourceRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     }
   }]
 }
@@ -56,7 +63,7 @@ This digest is a synthetic example, not proof of a real artifact. For orient, ch
 
 `--content` selects a starter root containing `membership.manifest.json`, `kernel/*.md`, and `reference/*.md`. The loader does not search outside these directories. It refuses symlinks, subdirectories, unexpected files, invalid content, and missing expected members. Generation comes from the membership manifest. The manifest supplies both expected activated IDs and expected kernel IDs. Expectations are never derived from the loaded content. Its negative scenarios must remain empty; invoking such a scenario is still incomplete, never a successful empty result.
 
-The loader validates reference sources when opening its snapshot. Reference prose enters a composed payload only when explicitly requested. MCP resources expose the same reference bodies on demand by exact registered URI. A server holds one immutable content snapshot until restart. On restart, the persisted session pin rejects a changed snapshot even when the generation number was not bumped.
+The loader validates reference sources when opening its snapshot. Reference prose enters a composed payload only when explicitly requested. MCP resources expose the same reference bodies on demand by exact registered URI. A server holds one immutable content snapshot until restart. `--source-revision` and every operation/provenance record name one exact 40-hex Git commit; the handshake and persisted session pin bind it. On restart, a changed source revision or content snapshot is rejected even when the generation number was not bumped.
 
 The built-in owner policy allows only an explicit fresh `verification: true` observation. Use `--config owner.json` to supply a strict plaintext owner configuration:
 
@@ -82,15 +89,15 @@ An owner configuration may only use rule conditions this shared runtime can actu
 
 `projectConfig` is per-operation data, but it participates in the session pin. A session therefore keeps one stable owner and project configuration for its lifetime: a later request that varies `projectConfig` refuses with a session config skew instead of re-deciding. Supply the intended project budget with the session's first request.
 
-Observation statuses are distinct: `fresh`, `missing`, `unavailable`, `stale`, `empty`, and `incomplete`. All remain visible in the result with provenance. Empty and incomplete surfaces map to unavailable for the existing policy API. An empty observation list is incomplete. Provenance must bind the exact subject digest and configuration/checker revisions. Mismatched evidence becomes incomplete. No session-wide verified flag exists.
+Observations keep four independent axes: `availability` (`available` or `unavailable`), `freshness` (`fresh`, `stale`, or `unknown`), `completeness` (`complete`, `partial`, or `unknown`), and `result` (`present`, `empty`, `no-work`, or `unknown`). Only an available, fresh, complete, present observation can supply fresh policy evidence. Empty, no-work, partial, stale and unavailable remain distinguishable in results and receipt traces. An empty observation list is incomplete. Provenance binds the exact subject digest, configuration/checker revisions, and source revision. Mismatched evidence becomes partial and can never authorize. Synthetic observations remain shadow-only because every outcome is provisional with enforcement disabled.
 
 ## State and receipts
 
-SQLite uses WAL and immediate transactions. Sessions are namespaced by owner and session ID. Request IDs are unique within that namespace. The stored digest covers the exact JSON value, canonicalized for object key order, before defaults are applied. Duplicate requests replay the previous outcome and receipt exactly. A cancelled or expired replay returns incomplete without delivering a stored allow; it writes no new receipt and leaves the original record intact. Reusing the ID with a changed subject, nonce, or any other payload refuses. A session pins generation, content digest, configuration revision and digest, and checker revision. Pin checks precede replay. Changing owner rules without changing their revision still causes a pin conflict.
+SQLite uses WAL and immediate transactions. Sessions are namespaced by owner and session ID. Request IDs are unique within that namespace. The stored digest covers the exact JSON value, canonicalized for object key order, before defaults are applied. Duplicate requests replay the previous outcome and receipt exactly. A cancelled or expired replay returns incomplete without delivering a stored allow; it writes no new receipt and leaves the original record intact. Reusing the ID with a changed subject, nonce, or any other payload refuses. A session pins generation, content digest, configuration revision and digest, checker revision, and source revision. Pin checks precede replay. Changing owner rules without changing their revision still causes a pin conflict.
 
-An outcome and its receipt commit together. Failed receipt creation rolls back both, including any new session pin. Receipts bind request digest, nonce, subject, revisions, generation, content digest, payload hash, schema/composer versions, byte totals by tier, gate verdict, and adapter timestamp. `ClockAdapter` supplies an explicit timestamp and monotonic clock; the default adapter uses ISO UTC time and `performance.now()`. Tests can inject a fixed timestamp. Receipts are audit records, not signed credentials or authority for a later subject.
+An outcome and its receipt commit together. Failed receipt creation rolls back both, including any new session pin. Receipts bind request digest, nonce, subject, source/config/checker revisions, generation, content digest, payload hash, schema/composer versions, byte totals by tier, gate verdict, and adapter timestamp. Their bounded explain trace contains only IDs, status axes, error codes and rule decisions—never transcript text, raw observation values or composed prose. `ClockAdapter` supplies an explicit timestamp and monotonic clock; the default adapter uses ISO UTC time and `performance.now()`. Tests can inject a fixed timestamp. Receipts are audit records, not signed credentials or authority for a later subject.
 
-`receipts` lists up to 100 records for one explicit owner/session namespace, newest first. The state file is local operational data. There is no retention or database-size quota yet.
+`receipts` lists up to 100 records for one explicit owner/session namespace, newest first. Receipt JSON is capped at 16 KiB. Storage retains at most 100 outcomes per namespace and evicts the oldest completed record before unresolved evidence; unresolved records are still subject to the hard cap. The state file is local operational data, not a knowledge store or authorization service.
 
 ## MCP stdio
 
@@ -104,13 +111,13 @@ An outcome and its receipt commit together. Failed receipt creation rolls back b
 {"jsonrpc":"2.0","id":4,"method":"resources/read","params":{"uri":"aos://reference/verification-recipes"}}
 ```
 
-The server advertises its AOS schema, composer version, content generation, and digest under `capabilities.experimental.aos`. A client may send `capabilities.experimental.aos` containing `version`, `schemaVersion`, `composeVersion`, and `contentGeneration` to require an exact handshake. Each tool operation independently requires these exact versions and generation. Unsupported versions refuse.
+The server advertises its AOS schema, composer version, content generation/digest, and source revision under `capabilities.experimental.aos`. A client may send `capabilities.experimental.aos` containing `version`, `schemaVersion`, `composeVersion`, `contentGeneration`, and `sourceRevision` to require an exact handshake. Each tool operation independently requires these exact values. Unsupported or stale values refuse.
 
 `tools/call` takes `params: {"name":"gate","arguments": <the full operation above>}`. The command in the envelope must match the tool name. Tool results contain both the complete JSON outcome as text and the same value in `structuredContent`. CLI and RPC use the same service and state format. Notifications produce no replies. Unknown methods, malformed JSON, invalid requests, invalid parameters, and internal errors use JSON-RPC error codes. RPC execution errors set the process's final exit status to 1; policy denies do not.
 
 To cancel an in-flight tool call, send `notifications/cancelled` with `params.requestId` equal to its JSON-RPC ID. The service yields before core execution and checks cancellation/deadline before and after the synchronous core calls. New cancelled/timed-out operations produce incomplete receipts with an indeterminate gate verdict. The pure core is synchronous: it cannot be preempted mid-call. There are no spawned children to kill. This is cooperative cancellation with bounded inputs, not a hard real-time guarantee. CLI stdin has a separate bounded wait (`--input-timeout-ms`, default 5000); a timeout before an envelope arrives is an input error without a receipt.
 
-Limits: 256 KiB operation/frame/file, 1 MiB source corpus, 128 files per tier, 128 scenarios, 256 observations/rules, 128-character runtime IDs, 1 MiB runtime output, 16 in-flight tool operations, and 10,000 newline frames per MCP connection. Runtime deadlines are 1–30,000 ms. Oversized or unterminated frames fail; they do not fall back to allow.
+Limits: 256 KiB operation/frame/file, 1 MiB source corpus, 128 files per tier, 128 scenarios, 256 observations/rules, 128-character runtime IDs, 16 KiB receipts, 100 retained outcomes per owner/session, 1 MiB runtime output, 16 in-flight tool operations, and 10,000 newline frames per MCP connection. Runtime deadlines are 1–30,000 ms. Oversized or unterminated frames fail; they do not fall back to allow.
 
 ## Verification and remaining scope
 

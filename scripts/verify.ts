@@ -3,7 +3,7 @@ import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CREDENTIAL_RULES, ENV_VARS, configuredLiteralRegex, parseLiteralList,
-  scanPublicRepo, exitCodeFor, trackerPrefixRegex } from './check-public.ts';
+  scanPublicRepo, exitCodeFor, trackerPrefixRegex, configuredTrackerPrefixes } from './check-public.ts';
 import { buildActivation, buildContentCorpus, evaluateMembership, validateMembershipManifest,
   type AosErrorCode, type ContentSourceFile } from '../src/schema/index.ts';
 import { compose } from '../src/compose/index.ts';
@@ -139,7 +139,7 @@ function outputRedactions(text: string, env: Record<string, string | undefined>)
       spans.push({ start, end, replacement });
     }
   };
-  for (const { value } of parseLiteralList(env[ENV_VARS.TRACKER_PREFIXES])) {
+  for (const { value } of configuredTrackerPrefixes(env[ENV_VARS.TRACKER_PREFIXES])) {
     collect(trackerPrefixRegex(value), '<token>');
   }
   for (const { re, label } of CREDENTIAL_RULES) collect(re, '<token>', 0, label === 'private-key-block');
@@ -180,6 +180,14 @@ export function redactOutput(text: string, env: Record<string, string | undefine
 export interface GateSpec extends CommandSpec { name: string; requireTests?: boolean }
 export interface GateResult { name: string; status: 'pass' | 'fail' | 'incomplete'; exitCode: number | null; tests: number | null; redactions: number; reason?: string }
 type Emit = (frame: Record<string, unknown>) => void;
+const OUTPUT_FRAME_CHARS = 8 * 1024;
+
+/** Keep each JSONL record below conservative Windows/GitHub log-line limits. */
+function emitOutput(emit: Emit, gate: string, channel: 'stdout' | 'stderr', text: string): void {
+  const count = Math.ceil(text.length / OUTPUT_FRAME_CHARS);
+  for (let index = 0; index < count; index++) emit({ schema: 'aos.verify/v1', kind: 'output', gate, channel,
+    part: index + 1, parts: count, text: text.slice(index * OUTPUT_FRAME_CHARS, (index + 1) * OUTPUT_FRAME_CHARS) });
+}
 
 export async function runGates(gates: GateSpec[], emit: Emit): Promise<GateResult[]> {
   const results: GateResult[] = [];
@@ -192,8 +200,8 @@ export async function runGates(gates: GateSpec[], emit: Emit): Promise<GateResul
     const status = child.state !== 'complete' ? 'incomplete' :
       child.exitCode !== 0 || spans.length > 0 || (gate.requireTests && tests === null) ? 'fail' : 'pass';
     for (const channel of ['stdout', 'stderr'] as const) {
-      if (child[channel]) emit({ schema: 'aos.verify/v1', kind: 'output', gate: gate.name, channel,
-        text: replaceOutput(child[channel], spans, channel === 'stdout' ? 0 : child.stdout.length + 1) });
+      if (child[channel]) emitOutput(emit, gate.name, channel,
+        replaceOutput(child[channel], spans, channel === 'stdout' ? 0 : child.stdout.length + 1));
     }
     const reason = child.reason ?? (spans.length > 0 ? 'unsafe-output-redacted' :
       child.exitCode !== 0 ? 'child-failed' : gate.requireTests && tests === null ? 'invalid-or-empty-test-summary' : undefined);
@@ -239,7 +247,8 @@ const NON_ACTIVATION_CODES: ReadonlySet<AosErrorCode> = new Set<AosErrorCode>([
  *
  * - **Positive scenarios** (`expectedIds` non-empty) must match exactly: every
  *   expected id activates, no unexpected id activates, and the activated kernel
- *   set equals `expectedKernelIds`. A manifest expectation with no matching
+ *   set equals `expectedKernelIds`, and the exact static-prefix content set
+ *   equals `expectedStaticIds`. A manifest expectation with no matching
  *   content, a demotion, or an extra activation is a failure — never ignored.
  * - **Negative scenarios** (`expectedIds` empty) must prove no activation:
  *   nothing activates, no kernel activates, and a `compose` over the scenario
@@ -281,6 +290,9 @@ export async function validateContent(root: string): Promise<{ files: number; do
     if (scenario.expectedKernelIds.some((id) => !scenario.expectedIds.includes(id))) {
       throw new Error('membership-kernel-not-in-expected-ids');
     }
+    if (scenario.expectedKernelIds.some((id) => !scenario.expectedStaticIds.includes(id))) {
+      throw new Error('membership-kernel-not-in-static-prefix');
+    }
     const evaluation = evaluateMembership({ ...manifest, scenarios: [scenario] }, documents);
     const result = evaluation.value.results[0];
     if (!evaluation.ok || evaluation.degraded || !result || !result.exact ||
@@ -299,7 +311,8 @@ export async function validateContent(root: string): Promise<{ files: number; do
     }
     // Fail-closed compose: the negative scenario must not compose green, and its
     // refusal must name the activation failure rather than pass silently.
-    const composed = compose(event, state, { documents, mustFireIds: [], mustFireKernelIds: [] });
+    const composed = compose(event, state, { documents, mustFireIds: [], mustFireKernelIds: [],
+      mustFireStaticIds: scenario.expectedStaticIds });
     if (composed.ok) throw new Error('membership-negative-compose-green');
     if (!composed.errors.some((error) => NON_ACTIVATION_CODES.has(error.code))) {
       throw new Error('membership-negative-compose-silent');

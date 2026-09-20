@@ -1,0 +1,113 @@
+import { constants } from 'node:fs';
+import { mkdir, open, readFile, rename, rm } from 'node:fs/promises';
+import { dirname, join, relative, resolve, sep } from 'node:path';
+import { z } from 'zod';
+import { canonicalize, digestOfString } from '../protocols/json';
+import { parseTrackerIdentifier, parseTrackerPrefixes } from '../schema/tracker';
+import { auditKnowledge, generateKnowledgeIndexes, publishKnowledgeIndexes } from './knowledge';
+
+const path = z.string().min(1).max(4096).refine(value => !value.startsWith('/') && !value.startsWith('~') && !value.split('/').includes('..'));
+const text = z.string().min(1).max(20_000);
+const digest = z.string().regex(/^sha256:[0-9a-f]{64}$/);
+const trackerReceipt = z.strictObject({ issue: z.string(), state: z.string().min(1).max(64),
+  updateDigest: digest, readbackDigest: digest, observedAt: z.string().datetime() })
+  .refine(value => value.updateDigest === value.readbackDigest, 'tracker-readback-mismatch');
+export const CloseoutRequestSchema = z.strictObject({
+  schema: z.literal('hendoos.closeout-request/v1'), closeoutId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,95}$/),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), projectId: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,95}$/),
+  projectReference: path, expectedProjectDigest: digest, issuePrefixes: z.string(), tracker: trackerReceipt,
+  why: text, what: text, currentState: text, evidence: z.array(text).min(1).max(100),
+  learnedBy: z.enum(['codex', 'hermes']), writePolicy: z.literal('propose'),
+  proposedLessons: z.array(text).max(50), proposedDecisions: z.array(text).max(50),
+});
+export type CloseoutRequest = z.infer<typeof CloseoutRequestSchema>;
+export class CloseoutError extends Error { constructor(readonly code: string) { super(code); } }
+const inside = (root: string, value: string) => { const rel = relative(root, value); return rel === '' || (!rel.startsWith('..' + sep) && rel !== '..'); };
+
+async function atomicReplace(path: string, body: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  const temporary = join(dirname(path), `.hendoos-${crypto.randomUUID()}.tmp`);
+  const file = await open(temporary, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+  try { await file.writeFile(body); await file.sync(); await rename(temporary, path); }
+  finally { await file.close(); await rm(temporary, { force: true }); }
+}
+
+async function visibleFailure(stateRoot: string, id: string, requestDigest: string, code: string): Promise<void> {
+  const path = join(stateRoot, 'closeouts', `${id}.failed.json`);
+  await atomicReplace(path, JSON.stringify({ schema: 'hendoos.closeout-failure/v1', id, requestDigest, code }, null, 2) + '\n');
+}
+
+function updateProject(source: string, request: CloseoutRequest): string {
+  const marker = `<!-- hendoos-closeout:${request.closeoutId} -->`;
+  if (source.includes(marker)) return source;
+  const parsed = source.replace(/^\uFEFF/, '');
+  if (!/^updated:\s*\d{4}-\d{2}-\d{2}\s*$/m.test(parsed)) throw new CloseoutError('project-updated-field-missing');
+  const updated = parsed.replace(/^updated:\s*\d{4}-\d{2}-\d{2}\s*$/m, `updated: ${request.date}`);
+  return updated.trimEnd() + `\n\n${marker}\n## Closeout ${request.date}\n\n` +
+    `- Issue: ${request.tracker.issue}\n- State: ${request.tracker.state}\n- Why: ${request.why}\n- What: ${request.what}\n` +
+    `- Current state: ${request.currentState}\n- Evidence:\n${request.evidence.map(value => `  - ${value}`).join('\n')}\n`;
+}
+
+function sessionNote(request: CloseoutRequest): string {
+  const list = (values: string[]) => values.length ? values.map(value => `- ${value}`).join('\n') : '- none';
+  return `---\nschema: hendoos.note/v1\nid: session-${request.closeoutId}\nkind: session\ntitle: "${request.tracker.issue} closeout"\n` +
+    `scope: [project:${request.projectId}]\nharness: [all]\nlifecycle: active\nupdated: ${request.date}\n` +
+    `provenance: [closeout:${request.closeoutId}, tracker:${request.tracker.issue}]\nsource_refs: [${request.projectReference}]\n` +
+    `learned_by: ${request.learnedBy}\ntrust: trusted\n---\n\n# ${request.tracker.issue} closeout\n\n` +
+    `## Why\n\n${request.why}\n\n## What\n\n${request.what}\n\n## Current state\n\n${request.currentState}\n\n` +
+    `## Evidence\n\n${list(request.evidence)}\n\n## Proposed lessons\n\n${list(request.proposedLessons)}\n\n` +
+    `## Proposed decisions\n\n${list(request.proposedDecisions)}\n\n## Tracker readback\n\n` +
+    `- Issue: ${request.tracker.issue}\n- State: ${request.tracker.state}\n- Observed: ${request.tracker.observedAt}\n`;
+}
+
+export async function runCloseout(knowledgeRoot: string, stateRoot: string, input: unknown): Promise<object> {
+  const parsed = CloseoutRequestSchema.safeParse(input);
+  if (!parsed.success) throw new CloseoutError('invalid-closeout-request');
+  const request = parsed.data, requestDigest = digestOfString(canonicalize(request));
+  const prefixes = parseTrackerPrefixes(request.issuePrefixes);
+  if (!parseTrackerIdentifier(request.tracker.issue, prefixes)) throw new CloseoutError('tracker-prefix-refused');
+  const knowledge = resolve(knowledgeRoot), state = resolve(stateRoot);
+  const projectPath = resolve(knowledge, request.projectReference);
+  if (!inside(knowledge, projectPath) || knowledge === state || inside(knowledge, state) || inside(state, knowledge)) throw new CloseoutError('root-boundary');
+  const receiptPath = join(state, 'closeouts', `${request.closeoutId}.json`);
+  try {
+    const prior = JSON.parse(await readFile(receiptPath, 'utf8')) as { requestDigest?: string; status?: string };
+    if (prior.requestDigest !== requestDigest) throw new CloseoutError('closeout-id-conflict');
+    if (prior.status === 'complete') return { ...prior, replayed: true };
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error; }
+  await mkdir(join(state, 'closeouts'), { recursive: true });
+  await atomicReplace(receiptPath, JSON.stringify({ schema: 'hendoos.closeout-receipt/v1', status: 'pending',
+    id: request.closeoutId, requestDigest }, null, 2) + '\n');
+  try {
+    const projectSource = await readFile(projectPath, 'utf8');
+    const currentDigest = digestOfString(projectSource);
+    const nextProject = updateProject(projectSource, request), nextDigest = digestOfString(nextProject);
+    if (currentDigest !== request.expectedProjectDigest && currentDigest !== nextDigest) throw new CloseoutError('newer-project-writer');
+    if (currentDigest !== nextDigest) await atomicReplace(projectPath, nextProject);
+    const sessionPath = join(knowledge, '30-Archive', 'Sessions', `${request.date}-${request.closeoutId}.md`);
+    const session = sessionNote(request);
+    try {
+      const existing = await readFile(sessionPath, 'utf8');
+      if (existing !== session) throw new CloseoutError('session-log-conflict');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      await mkdir(dirname(sessionPath), { recursive: true });
+      const file = await open(sessionPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+      try { await file.writeFile(session); await file.sync(); } finally { await file.close(); }
+    }
+    const audit = await auditKnowledge(knowledge);
+    if (audit.status !== 'complete') throw new CloseoutError('post-write-knowledge-audit');
+    const generated = generateKnowledgeIndexes(audit);
+    const publication = await publishKnowledgeIndexes(join(knowledge, '90-Indexes', '.generated'), generated);
+    const receipt = { schema: 'hendoos.closeout-receipt/v1', status: 'complete', id: request.closeoutId,
+      requestDigest, projectDigest: nextDigest, sessionReference: relative(knowledge, sessionPath).split(sep).join('/'),
+      tracker: request.tracker, indexDigest: generated.digest, publication };
+    await atomicReplace(receiptPath, JSON.stringify(receipt, null, 2) + '\n');
+    await rm(join(state, 'closeouts', `${request.closeoutId}.failed.json`), { force: true });
+    return { ...receipt, replayed: false };
+  } catch (error) {
+    const code = error instanceof CloseoutError ? error.code : 'closeout-io-failure';
+    await visibleFailure(state, request.closeoutId, requestDigest, code);
+    throw error;
+  }
+}

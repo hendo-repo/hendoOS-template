@@ -47,7 +47,7 @@ test('manifest boundaries reject malformed nested objects', () => {
     expect(validateContentManifest(input as never).ok).toBe(false);
   }
   expect(validateMembershipManifest({ version: 1, owner: 'core', generation: 1, scenarios: [null] } as never).ok).toBe(false);
-  expect(evaluateMembership({ version: 1, owner: 'core', generation: 1, scenarios: [{ id: 'empty', event: 'none', harness: 'none', expectedIds: [], expectedKernelIds: [] }] } as never, []).ok).toBe(false);
+  expect(evaluateMembership({ version: 1, owner: 'core', generation: 1, scenarios: [{ id: 'empty', event: 'none', harness: 'none', expectedIds: [], expectedKernelIds: [], expectedStaticIds: [] }] } as never, []).ok).toBe(false);
   expect(buildContentCorpus([null] as never).ok).toBe(false);
 });
 
@@ -59,7 +59,7 @@ const documents = () => buildContentCorpus([
 ]).value.documents;
 
 test('kernel prefix stays fixed across events and requested references stay dynamic', () => {
-  const index = { documents: documents(), mustFireIds: ['kernel', 'depth'], mustFireKernelIds: ['kernel'] };
+  const index = { documents: documents(), mustFireIds: ['kernel', 'depth'], mustFireKernelIds: ['kernel'], mustFireStaticIds: ['close', 'kernel'] };
   const first = compose(event, {}, index);
   const requested = compose(event, { referenceIds: ['depth'] }, index);
   const close = compose({ ...event, id: 'session-end' }, {}, { ...index, mustFireIds: ['close'], mustFireKernelIds: ['close'] });
@@ -75,13 +75,13 @@ test('kernel prefix stays fixed across events and requested references stay dyna
 
 test('unchanged expected kernel set catches a tier demotion', () => {
   const docs = documents().map(d => d.id === 'kernel' ? { ...d, tier: 'reference' } : d);
-  const result = compose(event, {}, { documents: docs, mustFireIds: ['kernel', 'depth'], mustFireKernelIds: ['kernel'] });
+  const result = compose(event, {}, { documents: docs, mustFireIds: ['kernel', 'depth'], mustFireKernelIds: ['kernel'], mustFireStaticIds: ['close'] });
   expect(result.errors.some(e => e.code === 'membership-mismatch')).toBe(true);
 });
 
 test('Markdown links resolve relative to the declaring source', () => {
   const docs = buildContentCorpus([source('kernel', 'kernel', 'pre-edit', '[Missing](missing.md#section)')]).value.documents;
-  const result = compose(event, {}, { documents: docs, mustFireIds: ['kernel'], mustFireKernelIds: ['kernel'] });
+  const result = compose(event, {}, { documents: docs, mustFireIds: ['kernel'], mustFireKernelIds: ['kernel'], mustFireStaticIds: ['kernel'] });
   expect(result.errors.some(e => e.code === 'reference-declared-missing')).toBe(true);
 });
 
@@ -103,15 +103,15 @@ test('unknown nested content fields, duplicate documents and newline digests fai
     { ...doc, sourcePath: '../escape.md' },
     { ...doc, activationConditions: [{ harnesses: ['default'], event: 'pre-edit', override: true }] },
   ]) {
-    expect(compose(event, {}, { documents: [bad], mustFireIds: [], mustFireKernelIds: [] }).ok).toBe(false);
+    expect(compose(event, {}, { documents: [bad], mustFireIds: [], mustFireKernelIds: [], mustFireStaticIds: [] }).ok).toBe(false);
   }
-  expect(compose(event, {}, { documents: [doc, doc], mustFireIds: [], mustFireKernelIds: [] }).ok).toBe(false);
+  expect(compose(event, {}, { documents: [doc, doc], mustFireIds: [], mustFireKernelIds: [], mustFireStaticIds: [] }).ok).toBe(false);
 });
 
 test('Markdown inline, image and definition references check paths and anchors', () => {
   for (const body of ['[Depth](depth.md#reference-detail)', '![Depth](depth.md#reference-detail)', '[Depth][recipe]\n\n[recipe]: depth.md#reference-detail']) {
     const docs = buildContentCorpus([source('kernel', 'kernel', 'pre-edit', body), source('depth', 'reference', 'pre-edit', '# Reference detail')]).value.documents;
-    const index = { documents: docs, mustFireIds: ['kernel', 'depth'], mustFireKernelIds: ['kernel'] };
+    const index = { documents: docs, mustFireIds: ['kernel', 'depth'], mustFireKernelIds: ['kernel'], mustFireStaticIds: ['kernel'] };
     expect(compose(event, { referenceIds: ['depth'] }, index).ok).toBe(true);
     const changed = docs.map(d => d.id === 'depth' ? { ...d, body: '# Changed heading' } : d);
     expect(compose(event, { referenceIds: ['depth'] }, { ...index, documents: changed }).errors.some(e => e.code === 'reference-declared-missing')).toBe(true);
@@ -119,7 +119,7 @@ test('Markdown inline, image and definition references check paths and anchors',
 });
 
 test('membership validation catches actual tier demotion and unknown fields', () => {
-  const manifest = { version: 1, owner: 'core', generation: 1, scenarios: [{ id: 'edit', harness: 'default', event: 'pre-edit', expectedIds: ['kernel', 'depth'], expectedKernelIds: ['kernel'] }] };
+  const manifest = { version: 1, owner: 'core', generation: 1, scenarios: [{ id: 'edit', harness: 'default', event: 'pre-edit', expectedIds: ['kernel', 'depth'], expectedKernelIds: ['kernel'], expectedStaticIds: ['close', 'kernel'] }] };
   expect(evaluateMembership(manifest, documents()).ok).toBe(true);
   const demoted = documents().map(d => d.id === 'kernel' ? { ...d, tier: 'reference' } : d);
   expect(evaluateMembership(manifest, demoted).ok).toBe(false);
@@ -128,13 +128,13 @@ test('membership validation catches actual tier demotion and unknown fields', ()
 
 test('wildcard harness content stays portable', () => {
   const docs = documents().map(d => ({ ...d, targetHarnesses: ['*'], activationConditions: d.activationConditions.map(c => ({ ...c, harnesses: ['*'] })) }));
-  expect(compose({ ...event, harness: 'custom' }, {}, { documents: docs, mustFireIds: ['kernel', 'depth'], mustFireKernelIds: ['kernel'] }).ok).toBe(true);
+  expect(compose({ ...event, harness: 'custom' }, {}, { documents: docs, mustFireIds: ['kernel', 'depth'], mustFireKernelIds: ['kernel'], mustFireStaticIds: ['close', 'kernel'] }).ok).toBe(true);
 });
 
 test('payload output schema checks strict provenance and digest integrity', async () => {
   const { VersionedPayloadSchema } = await import('../src/protocols/payload');
   const { recomposeWithStaticBlocks } = await import('../src/compose');
-  const result = compose(event, { referenceIds: ['depth'] }, { documents: documents(), mustFireIds: ['kernel', 'depth'], mustFireKernelIds: ['kernel'] });
+  const result = compose(event, { referenceIds: ['depth'] }, { documents: documents(), mustFireIds: ['kernel', 'depth'], mustFireKernelIds: ['kernel'], mustFireStaticIds: ['close', 'kernel'] });
   expect(VersionedPayloadSchema.safeParse(result.value.payload).success).toBe(true);
   const rebuilt = recomposeWithStaticBlocks(result.value, [{ id: 'rules', text: 'Fixed\n' }]);
   expect(rebuilt.ok).toBe(true);

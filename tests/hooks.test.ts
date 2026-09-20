@@ -16,10 +16,12 @@ const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 const sourceRoot = await realpath(resolve('.'));
 const bunPath = await realpath(process.execPath);
-const facts = [{ key: 'verification', status: 'fresh' as const, value: true }];
+const sourceRevision = 'a'.repeat(40);
+const facts = [{ key: 'verification', availability: 'available' as const, freshness: 'fresh' as const,
+  completeness: 'complete' as const, result: 'present' as const, reasons: [], value: true }];
 const config = { version: 1 as const, protocol: HARNESS_PROTOCOL as typeof HARNESS_PROTOCOL, schemaVersion: 1 as const,
-  composeVersion: 1 as const, contentGeneration: 2, configRevision: 'aos-runtime-default/1',
-  checkerRevision: 'aos-policy/1' as const, timeoutMs: 5000, syntheticObservations: facts };
+  composeVersion: 1 as const, contentGeneration: 3, configRevision: 'aos-runtime-default/1',
+  checkerRevision: 'aos-policy/1' as const, sourceRevision, timeoutMs: 5000, syntheticObservations: facts };
 const event = { hook_event_name: 'PreToolUse', session_id: 'test-session', tool_use_id: 'test-call',
   transcript_path: '/unused/transcript.jsonl', cwd: '/unused/project', tool_name: 'Edit',
   tool_input: { file_path: '/unused/project/file.ts', old_string: 'old', new_string: 'new' } };
@@ -88,7 +90,7 @@ test('native context cannot inject facts; shared service allow stays a shadow ob
     const parsed = HookConfigSchema.parse({ ...config, ownerId: 'test-owner', contentRoot: join(sourceRoot, 'content'), statePath: f.options.statePath });
     const op = nativeOperation(forged, parsed);
     expect(op.observations[0]!.provenance.kind).toBe('synthetic');
-    const replay = await new RuntimeService({ state, content: await loadContent(parsed.contentRoot) }).execute(op);
+    const replay = await new RuntimeService({ state, content: await loadContent(parsed.contentRoot), sourceRevision }).execute(op);
     expect(replay.receipt).toEqual(receipt);
     expect(replay.enforcement).toBe(false);
     expect(report.composition).toBe(replay.core?.composition.value.payload.text);

@@ -1,7 +1,7 @@
 /** Explicit starter-root loader. No ambient homes, recursive corpus discovery or symlinks. */
 import { lstat, readdir, readFile, realpath } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { buildContentCorpus, buildActivation, evaluateMembership, type ContentDocument, type MembershipManifest } from '../schema/index';
+import { buildContentCorpus, evaluateMembership, type ContentDocument, type MembershipManifest } from '../schema/index';
 import { MembershipManifestRuntimeSchema } from '../schema/runtime';
 import { digestOfJson, type Json } from '../protocols/json';
 export const MAX_SOURCE_BYTES = 262144;
@@ -37,15 +37,14 @@ export async function loadContent(root: string): Promise<LoadedContent> {
   }
   const corpus = buildContentCorpus(files);
   if (!corpus.ok || !corpus.value.documents.length) throw new Error('starter content invalid or empty');
-  // The manifest also carries negative scenarios (unknown event/harness, empty
-  // activation). Those must stay empty; they are not successful runtime queries.
+  // Every scenario checks activated ids and the exact static prefix inventory.
+  // Empty activation scenarios remain valid manifest controls, not successful
+  // runtime queries.
   for (const scenario of membership.scenarios) {
-    if (scenario.expectedIds.length) {
-      if (!evaluateMembership({ ...membership, scenarios: [scenario] }, corpus.value.documents).ok) throw new Error('starter membership mismatch');
-    } else {
-      const activation = buildActivation({ id: scenario.event, harness: scenario.harness }, { keys: scenario.stateKeys ?? [] }, corpus.value.documents);
-      if (activation.value.ids.length || scenario.expectedKernelIds.length) throw new Error('negative membership scenario activated content');
-    }
+    const evaluation = evaluateMembership({ ...membership, scenarios: [scenario] }, corpus.value.documents);
+    const membershipMismatch = evaluation.errors.some(error => error.code === 'membership-mismatch');
+    const expectedEmptyDegradation = scenario.expectedIds.length === 0 && evaluation.value.results[0]?.actualIds.length === 0;
+    if (membershipMismatch || (!evaluation.ok && !expectedEmptyDegradation)) throw new Error('starter membership mismatch');
   }
   return { generation: membership.generation, documents: corpus.value.documents, membership,
     digest: digestOfJson({ membership, sources: corpus.value.documents.map(d => ({ id: d.id, digest: d.digest })) } as unknown as Json) };

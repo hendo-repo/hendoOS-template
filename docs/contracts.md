@@ -43,15 +43,16 @@ revision or supply an `authority` override.
 ## Compose and membership
 
 `ComposeIndex` contains `documents`, optional `staticBlocks`, optional
-`totalByteBudget`, and two independently authored scenario expectations:
+`totalByteBudget`, and three independently authored scenario expectations:
 
 - `mustFireIds`: exact set of all activated IDs, including references.
 - `mustFireKernelIds`: exact set of activated kernel IDs.
+- `mustFireStaticIds`: exact set of kernel IDs present in the invariant static prefix, including dormant kernels targeted to the harness.
 
 Both expectations are required for successful composition. Do not derive them
 from the same mutable documents being checked. Removing a kernel, changing its
 activation, or demoting it to reference must fail the fixed expectation.
-`MembershipScenario` uses `expectedIds` and `expectedKernelIds` for these same
+`MembershipScenario` uses `expectedIds`, `expectedKernelIds`, and `expectedStaticIds` for these same
 checks. `MembershipManifest` includes `version: 1`, `owner`, `generation`, and
 `scenarios`. `evaluateMembership(manifest, documents)` propagates activation errors.
 An empty or unknown scenario is degraded even if its expected set is empty. The
@@ -76,6 +77,7 @@ const index = {
   documents: corpus.value.documents,
   mustFireIds: ['rules', 'recipes'],
   mustFireKernelIds: ['rules'],
+  mustFireStaticIds: ['rules'],
   totalByteBudget: 20000,
 };
 const event = { id: 'task-start', harness: 'default' };

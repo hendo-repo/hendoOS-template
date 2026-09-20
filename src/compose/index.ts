@@ -55,6 +55,8 @@ export interface ComposeIndex {
   mustFireIds?: readonly string[];
   /** Independently authored exact activated kernel set. Required for success. */
   mustFireKernelIds?: readonly string[];
+  /** Independently authored exact content-id set emitted in the static prefix. */
+  mustFireStaticIds?: readonly string[];
 }
 
 export interface ComposeDiagnostics {
@@ -66,6 +68,7 @@ export interface ComposeDiagnostics {
   /** Ids that activated (kernel then reference, id ascending). */
   activatedIds: readonly string[];
   kernelIds: readonly string[];
+  staticIds: readonly string[];
   referenceIds: readonly string[];
   /** Activated kernel content declared these reference ids. */
   declaredReferenceIds: readonly string[];
@@ -81,6 +84,8 @@ export interface ComposeDiagnostics {
   mustFireMissingIds: readonly string[];
   /** Ids that activated but were not in `mustFireIds`. */
   mustFireExtraIds: readonly string[];
+  mustFireStaticMissingIds: readonly string[];
+  mustFireStaticExtraIds: readonly string[];
   /** True when a `mustFireIds` set was supplied at all. */
   mustFireDeclared: boolean;
   /** Per-entry byte figures, in output order. */
@@ -306,6 +311,18 @@ export function compose(
       details: { expected: expectedKernelIds ?? null, actual: [...activation.value.kernelIds] },
     }));
   }
+  const actualStaticIds = kernels.map(document => document.id);
+  const expectedStaticIds = parsedIndex.mustFireStaticIds;
+  const expectedStaticSet = new Set(expectedStaticIds ?? []);
+  const actualStaticSet = new Set(actualStaticIds);
+  const mustFireStaticMissingIds = [...expectedStaticSet].filter(id => !actualStaticSet.has(id)).sort();
+  const mustFireStaticExtraIds = [...actualStaticSet].filter(id => !expectedStaticSet.has(id)).sort();
+  if (expectedStaticIds === undefined || mustFireStaticMissingIds.length || mustFireStaticExtraIds.length) {
+    errors.push(aosError('membership-mismatch', 'static prefix id set does not match explicit mustFireStaticIds', {
+      details: { expected: expectedStaticIds ?? null, actual: actualStaticIds,
+        missing: mustFireStaticMissingIds, extra: mustFireStaticExtraIds },
+    }));
+  }
 
   // --- 5. Per-entry budget re-check -----------------------------------------
   const entries: RenderedDocument[] = included.map(renderDocument);
@@ -392,6 +409,7 @@ export function compose(
     stateKeys: [...activation.value.stateKeys],
     activatedIds: actualIds,
     kernelIds: [...activation.value.kernelIds],
+    staticIds: actualStaticIds,
     referenceIds: included.filter((doc) => doc.tier === 'reference').map((doc) => doc.id),
     declaredReferenceIds: [...declaredReferenceIds].sort(),
     missingDeclaredReferenceIds,
@@ -400,6 +418,8 @@ export function compose(
     droppedIds: droppedIds.sort(),
     mustFireMissingIds,
     mustFireExtraIds,
+    mustFireStaticMissingIds,
+    mustFireStaticExtraIds,
     mustFireDeclared,
     entryBytes,
     documentCount: documents.length,
@@ -434,6 +454,7 @@ function emptyDiagnostics(event: ActivationEvent, payload: VersionedPayload): Co
     stateKeys: [],
     activatedIds: [],
     kernelIds: [],
+    staticIds: [],
     referenceIds: [],
     declaredReferenceIds: [],
     missingDeclaredReferenceIds: [],
@@ -442,6 +463,8 @@ function emptyDiagnostics(event: ActivationEvent, payload: VersionedPayload): Co
     droppedIds: [],
     mustFireMissingIds: [],
     mustFireExtraIds: [],
+    mustFireStaticMissingIds: [],
+    mustFireStaticExtraIds: [],
     mustFireDeclared: false,
     entryBytes: [],
     documentCount: 0,
@@ -506,7 +529,22 @@ function markdownLinks(body: string): string[] {
 
 /** Fenced code is not prose: headings and links inside a fence do not count. Pure. */
 function stripFencedCode(body: string): string {
-  return body.replace(/```[\s\S]*?```|~~~[\s\S]*?~~~/g, '');
+  const kept: string[] = [];
+  let fence: { marker: '`' | '~'; length: number } | null = null;
+  for (const line of body.split('\n')) {
+    if (!fence) {
+      const opening = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+      if (opening) {
+        fence = { marker: opening[1]![0] as '`' | '~', length: opening[1]!.length };
+        kept.push('');
+      } else kept.push(line);
+      continue;
+    }
+    const closing = new RegExp(`^ {0,3}${fence.marker === '`' ? '`' : '~'}{${fence.length},}\\s*$`);
+    if (closing.test(line)) fence = null;
+    kept.push('');
+  }
+  return kept.join('\n');
 }
 
 function resolveMarkdownLink(source: ContentDocument, link: string, documents: readonly ContentDocument[]): ContentDocument | undefined {

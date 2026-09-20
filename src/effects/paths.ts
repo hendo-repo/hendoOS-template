@@ -123,3 +123,52 @@ export async function readFileDigest(root: string, path: string): Promise<PathRe
     catch { return failure('unreadable', 'File descriptor could not be closed'); }
   }
 }
+
+/**
+ * Read the exact bytes whose digest was verified, through one descriptor and
+ * under the same identity/metadata checks as `readFileDigest`. This closes the
+ * verify-then-reopen race for staged installer input.
+ */
+export async function readVerifiedFile(root: string, path: string, expectedDigest: string): Promise<PathResult<Uint8Array>> {
+  if (!rootPath(root) || typeof path !== 'string' || !isInstallPath(path) ||
+    !/^sha256:[a-f0-9]{64}$/.test(expectedDigest)) return failure('unsafe-path', 'Unsafe root, relative file path, or digest');
+  const absolute = join(root, path);
+  const before = await inspect(absolute, 'file');
+  if (!before.ok) return before;
+  let handle: Awaited<ReturnType<typeof open>> | undefined;
+  let result: PathResult<Uint8Array>;
+  try {
+    handle = await open(absolute, process.platform === 'win32'
+      ? 'r'
+      : constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const opened = await handle.stat();
+    if (!opened.isFile() || opened.dev !== before.value.dev || opened.ino !== before.value.ino) {
+      result = failure('changed', 'File identity changed during inspection');
+    } else if (opened.size > ARTIFACT_SIZE_CEILING) {
+      result = failure('unreadable', 'File exceeds the artifact size ceiling');
+    } else {
+      const bytes = Buffer.alloc(opened.size);
+      const hasher = new Bun.CryptoHasher('sha256');
+      let total = 0;
+      while (total < opened.size) {
+        const requested = Math.min(READ_CHUNK_SIZE, opened.size - total);
+        const { bytesRead } = await handle.read(bytes, total, requested, total);
+        if (bytesRead === 0) break;
+        hasher.update(bytes.subarray(total, total + bytesRead));
+        total += bytesRead;
+      }
+      const after = await handle.stat();
+      const pathAfter = await inspect(absolute, 'file');
+      if (!pathAfter.ok) result = pathAfter;
+      else if (total !== opened.size || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs || after.ctimeMs !== opened.ctimeMs ||
+        pathAfter.value.dev !== opened.dev || pathAfter.value.ino !== opened.ino) {
+        result = failure('changed', 'File changed during inspection');
+      } else if (`sha256:${hasher.digest('hex')}` !== expectedDigest) {
+        result = failure('changed', 'File digest differs from the expected artifact');
+      } else result = { ok: true, value: bytes };
+    }
+  } catch (error) { result = ioFailure(error); }
+  try { await handle?.close(); }
+  catch { return failure('unreadable', 'File descriptor could not be closed'); }
+  return result;
+}

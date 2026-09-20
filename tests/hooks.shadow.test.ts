@@ -33,10 +33,12 @@ const roots: string[] = [];
 afterEach(async () => { for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true }); });
 const sourceRoot = await realpath(resolve('.'));
 const bunPath = await realpath(process.execPath);
-const facts = [{ key: 'verification', status: 'fresh' as const, value: true }];
+const sourceRevision = 'a'.repeat(40);
+const facts = [{ key: 'verification', availability: 'available' as const, freshness: 'fresh' as const,
+  completeness: 'complete' as const, result: 'present' as const, reasons: [], value: true }];
 const config: RenderOptions['config'] = { version: 1, protocol: HARNESS_PROTOCOL, schemaVersion: 1,
-  composeVersion: 1, contentGeneration: 2, configRevision: 'aos-runtime-default/1',
-  checkerRevision: 'aos-policy/1', timeoutMs: 5000, syntheticObservations: facts };
+  composeVersion: 1, contentGeneration: 3, configRevision: 'aos-runtime-default/1',
+  checkerRevision: 'aos-policy/1', sourceRevision, timeoutMs: 5000, syntheticObservations: facts };
 const DENY_ALL = { version: 1 as const, revision: 'aos-runtime-default/1', checkerRevision: 'aos-policy/1' as const,
   totalByteBudget: 65536, gateFailure: 'closed' as const, rules: [{ id: 'deny-all', decision: 'deny' as const }] };
 const event = { hook_event_name: 'PreToolUse', session_id: 'shadow-session', tool_use_id: 'shadow-call',
@@ -138,11 +140,14 @@ test('incomplete shadow evidence is indeterminate, never inferred permission eit
 test('in-process encoding assigns zero native authority to a synthetic allow or an absent runtime', () => {
   const receipt = { version: 1 as const, requestId: 'r', sessionId: 's', ownerId: 'o', nonce: 'n',
     requestDigest: 'sha256:' + 'a'.repeat(64), payloadHash: 'sha256:' + 'b'.repeat(64), schemaVersion: 1 as const,
-    composeVersion: 1 as const, contentGeneration: 2, contentDigest: 'sha256:' + 'c'.repeat(64),
+    composeVersion: 1 as const, contentGeneration: 3, contentDigest: 'sha256:' + 'c'.repeat(64),
     subjectDigest: 'sha256:' + 'd'.repeat(64), configRevision: 'aos-runtime-default/1',
     configDigest: 'sha256:' + 'e'.repeat(64), checkerRevision: 'aos-policy/1' as const,
+    sourceRevision,
     timestamp: '2026-01-01T00:00:00.000Z', byteTiers: { kernel: 0, reference: 0, framework: 0, total: 0 },
-    gateVerdict: 'allow' as const, provisional: true as const };
+    gateVerdict: 'allow' as const, provisional: true as const,
+    trace: { command: 'gate' as const, scenarioId: 'pre-edit-kernel-plus-declared-reference', outcomeStatus: 'complete' as const,
+      reason: null, compositionCodes: [], policyDecision: 'allow' as const, allowedBy: [], deniedBy: [], indeterminateBy: [], observations: [] } };
   const complete = hookReply({ status: 'complete', provisional: true, enforcement: false, reason: null,
     observations: [], core: null, receipt });
   expect(complete.exitCode).toBe(0);

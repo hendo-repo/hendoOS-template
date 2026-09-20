@@ -14,6 +14,7 @@
     "typecheck": "bun run --bun tsc --noEmit",
     "verify": "bun scripts/verify.ts",
     "benchmark": "bun scripts/benchmark.ts",
+    "prove:skills": "bun scripts/prove-skills.ts",
     "export:public": "bun scripts/export-public.ts"
   },
   "dependencies": {

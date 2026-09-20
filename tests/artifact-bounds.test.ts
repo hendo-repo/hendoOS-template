@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { mkdtemp, realpath, rm, truncate, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { ARTIFACT_SIZE_CEILING, readFileDigest } from '../src/effects/paths';
+import { ARTIFACT_SIZE_CEILING, readFileDigest, readVerifiedFile } from '../src/effects/paths';
 
 // Literal so the RED run fails meaningfully instead of erroring on a missing export.
 const EXPECTED_CEILING = 16 * 1024 * 1024;
@@ -46,6 +46,7 @@ describe('artifact read bounds', () => {
     // Diagnostic must stay bounded and must not echo the file name.
     expect(result.message).not.toContain('huge.bin');
     expect(result.message.length).toBeLessThan(120);
+    expect((await readVerifiedFile(root, 'huge.bin', digest(''))).ok).toBe(false);
   });
 
   test('accepts a file exactly at the ceiling and hashes it in bounded chunks', async () => {

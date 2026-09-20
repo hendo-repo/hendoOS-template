@@ -68,7 +68,7 @@ async function renderOptions(): Promise<Record<string, unknown>> {
     statePath: join(stateRoot, 'state.sqlite'), bunPath: BUN, owner: OWNER, generation: 1,
     config: { version: 1, protocol: HARNESS_PROTOCOL, schemaVersion: 1, composeVersion: 1,
       contentGeneration: membership.generation, configRevision: 'aos-runtime-default/1',
-      checkerRevision: 'aos-policy/1', timeoutMs: 5000 },
+      checkerRevision: 'aos-policy/1', sourceRevision: 'a'.repeat(40), timeoutMs: 5000 },
   };
 }
 

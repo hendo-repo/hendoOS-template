@@ -2,8 +2,9 @@ import { afterEach, describe, expect, test } from 'bun:test';
 import { chmod, link, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, relative } from 'node:path';
-import { CONTROL_DIR, CONTROL_COORDINATION_PATH, CONTROL_JOURNAL_PATH, CONTROL_LOCK_PATH, CONTROL_STATE_PATH, install, recoverInstall, uninstall,
+import { CONTROL_DIR, CONTROL_COORDINATION_PATH, CONTROL_JOURNAL_PATH, CONTROL_LOCK_PATH, CONTROL_STATE_PATH, install as publicInstall,
   type Failpoints, type InstallReport, type InstallOptions } from '../src/effects/install';
+import { install, recoverInstall, uninstall, type FaultedInstallOptions } from '../src/effects/install-testing';
 import { InstallManifestSchema, type InstallManifest } from '../src/schema/install';
 
 const digest = (bytes: string | Uint8Array) => `sha256:${new Bun.CryptoHasher('sha256').update(bytes).digest('hex')}`;
@@ -67,7 +68,7 @@ async function fixture(): Promise<Fixture> {
 }
 
 // Only documented API fields cross the boundary; fixture metadata stays out.
-function installOptions(f: Fixture, override: Partial<InstallOptions> = {}): InstallOptions {
+function installOptions(f: Fixture, override: Partial<FaultedInstallOptions> = {}): FaultedInstallOptions {
   return { sourceRoot: f.sourceRoot, targetRoot: f.targetRoot, stageRoot: f.stageRoot,
     manifest: structuredClone(f.manifest), owner: f.owner, ...override };
 }
@@ -694,6 +695,14 @@ describe('environment isolation', () => {
 
 // Invalid runtime inputs use an explicit boundary cast, never a cast on valid calls.
 describe('strict runtime API', () => {
+  test('the public installer API rejects fault injection', async () => {
+    const f = await fixture();
+    const report = await publicInstall({ ...installOptions(f), failpoints: { at: 'after-plan', mode: 'exit' } } as unknown as InstallOptions);
+    expect(report.status).toBe('refused');
+    expect(hasCode(report, 'invalid-options')).toBe(true);
+    expect(await readdir(f.targetRoot)).toEqual([]);
+  });
+
   test('rejects unknown, inherited, accessor and mistyped options without mutation', async () => {
     const f = await fixture();
     let accessed = 0;
@@ -742,7 +751,7 @@ describe('strict runtime API', () => {
   });
 });
 
-const installerUrl = new URL('../src/effects/install.ts', import.meta.url).href;
+const installerUrl = new URL('../src/effects/install-testing.ts', import.meta.url).href;
 async function childOperation(operation: 'install' | 'uninstall' | 'recoverInstall', options: unknown, kill = false) {
   const script = `const api = await import(${JSON.stringify(installerUrl)});
     ${kill ? "process.exit = () => { process.kill(process.pid, 'SIGKILL'); throw new Error('kill failed'); };" : ''}
