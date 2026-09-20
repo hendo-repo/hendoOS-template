@@ -33,7 +33,7 @@ core, so platform behavior is Bun's plus the operating system's.
 | --- | --- | --- | --- |
 | macOS ARM64 (Apple Silicon) | **Provisional** | Locally reproduced with the commands named in §5 on this checkout | This is the only platform with real execution evidence. See §5 for the exact scope; it does not extend to live harness behavior or power-loss durability. |
 | Linux ARM64 | **Provisional** | A prior candidate revision reached a passing suite before the hook adapter existed | That evidence predates the hook and management lanes, so it does not cover the current tree. Re-run the §5 commands on Linux ARM64 before treating any row as covered there. |
-| Linux x86_64 | **Provisional** | `bun verify` and `bun run prove:skills` passed locally on the Phase 3 candidate | Local evidence only; hosted evidence belongs to the earlier Phase 2 commit until Phase 3 CI completes. |
+| Linux x86_64 | **Provisional** | Phase 4 lifecycle tests and `bun verify` run locally on the exact candidate named in its receipt | Includes disposable restore and POSIX stop/resume race proof; live harness behavior and power loss remain outside scope. |
 | Windows (native, no bash) | **UNVERIFIED** | No gate has been run | The renderer refuses `win32` outright because the generated shim needs POSIX `sh`. Native Windows execution is a *target*, not a claim. |
 | WSL / Git Bash on Windows | **UNVERIFIED** | No gate has been run | Not a target platform; not assessed. |
 
@@ -56,7 +56,7 @@ including the hook and management subprocess tests.
 | Surface | Upstream at pin | AOS today |
 | --- | --- | --- |
 | Content compiler (`install`) | Real, bash + PowerShell twins, deterministic manifests | **Implemented, differently scoped.** AOS renders a self-contained delivery and installs it through a journaled staged installer. It does not reproduce upstream's shell/pwsh twin layout. |
-| Drift gate (`check-drift`) | Real, manifest + auto modes, soft-drift cure envelope | **Implemented, read-only.** `src/effects/drift.ts` compares source and output digests against an independent manifest and reports `clean`/`drift`/`indeterminate`. There are no auto-cure modes. |
+| Drift gate (`check-drift`) | Real, manifest + auto modes, soft-drift cure envelope | **Implemented, read-only.** `src/effects/drift.ts` separately reports source freshness (including source revision) and output consistency against an independent nonempty manifest. Named missing/unreadable roots stay indeterminate. There are no auto-cure modes. |
 | Validator (`validate`) | Real, bash + PowerShell twins | **Partially implemented.** Content and membership validation run inside `bun verify`'s content gate; there is no standalone `validate` surface. |
 | Cleanliness gate (`check-clean`) | Real, PII/tracker/commit-message coverage | **Implemented, narrower.** `scripts/check-public.ts` scans publish candidates, configured private literals, tracker prefixes, home paths, emails and credential patterns, and covers Git history state. Commit-message coverage and upstream's exact rule set are not reproduced. |
 | Advisory audits (`self-audit`, memory/state/linear checks) | Real | **Partially implemented.** The canonical `self-audit` skill and read-only knowledge/skill audits exist; broad machine and account audits do not. |
@@ -107,6 +107,7 @@ live configuration directory.
 | `bun verify` | The five required gates in order: typecheck, tests, architecture, public-source scan, content validation | **Yes** |
 | `bun run verify --content` / `--public` | Content and membership validity alone; public-source scan alone | **Yes** |
 | `bun test tests/manage.test.ts` | Management CLI contract: help, render, install, drift, uninstall, recover, doctor, and invalid-input refusal, all through real subprocesses in temporary roots | **Yes** |
+| `bun test tests/install.test.ts tests/hooks.test.ts tests/restore.test.ts tests/doctor.test.ts` | Ownership classes, shared-settings merge/update/uninstall, crash recovery, explicit stop/resume stale-writer barrier, foreign-marker diagnosis, and clean disposable restore/degraded operation | **Yes** |
 | `bun test tests/hooks.test.ts` | Hook adapter mapping, shadow `would-allow`/`would-deny`/`indeterminate` reports, the generated wrapper's startup-failure path, and direct execution of the exact rendered shim command | **Yes** |
 | `bun test tests/hooks.shadow.test.ts` | The `aos.shadow/v1` response contract: no `permissionDecision` in any reply, exit 0 complete / 1 incomplete, never exit 2 | **Yes** |
 | `bun test tests/phase3.test.ts` | Exact spine set, discovery failures, cross-harness lesson recall, durable-note scanning, deterministic indexes, closeout replay, and tracker grammar | **Yes** |

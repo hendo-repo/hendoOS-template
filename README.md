@@ -124,15 +124,18 @@ Behaviour that matters:
   result exits `1`. Only a completed effect, clean drift, or supplied doctor
   checks exit `0`.
 - `render` and `install` are separate steps on purpose: inspect the staged
-  manifest before you install it.
+  manifest and run read-only `drift` as the diff before you install it, then run
+  `drift` again to verify the applied bytes and source revision.
 - There is no force flag, no ambient home discovery, and no test failpoint
   option. `recover` ignores only the stale PID diagnostic, and only with an
   explicit `assumeDead: true`.
 - `uninstall` does **not** remove operational state in a separate state directory
   and it retains the stable installer coordination file. Expect residue.
-- `doctor` is read-only runtime/content/config diagnostics. It does not test a
-  live harness, operational state, target ownership or system health, and it says
-  so in its own output.
+- `doctor` is read-only runtime/content/config diagnostics. With an explicit
+  target it also classifies legacy/Bun marker coexistence while returning
+  `authorization: none`; marker presence never authorizes either system. It does
+  not test a live harness, operational state, target ownership or system health,
+  and it says so in its own output.
 
 See `docs/install.md` for the installer contract, `docs/harnesses.md` for the
 rendered layout and the render/install pair.
@@ -148,6 +151,7 @@ directory rather than your real configuration.
 ```sh
 bun test tests/hooks.test.ts
 bun test tests/hooks.shadow.test.ts
+bun test tests/restore.test.ts
 ```
 
 Those suites render the adapter into a temporary tree, install it there, and

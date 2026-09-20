@@ -77,6 +77,17 @@ describe('install manifest runtime boundary', () => {
     }
     expect((await checkDrift(null as unknown as CheckDriftOptions)).status).toBe('indeterminate');
   });
+  test('ownership classes are exclusive and managed JSON declarations require complete merge evidence', async () => {
+    const f = await fixture(); const output = f.manifest.outputs[0]!;
+    for (const invalid of [
+      { ...output, ownership: 'managed-json-item' },
+      { ...output, ownership: 'framework-file', baseDigest: digest('base') },
+      { ...output, ownership: 'managed-json-item', baseDigest: null, jsonPath: ['hooks', 'PreToolUse'] },
+      { ...output, ownership: 'managed-json-item', baseDigest: null, jsonPath: ['__proto__'], itemDigest: digest('item') },
+    ]) expect(InstallManifestSchema.safeParse({ ...f.manifest, outputs: [invalid] }).success).toBe(false);
+    expect(InstallManifestSchema.safeParse({ ...f.manifest, outputs: [{ ...output, ownership: 'managed-json-item',
+      baseDigest: null, jsonPath: ['hooks', 'PreToolUse'], itemDigest: digest('item') }] }).success).toBe(true);
+  });
   test('rejects inherited and accessor fields without executing getters or exposing rejected keys', async () => {
     const f = await fixture();
     expect(InstallManifestSchema.safeParse(Object.create(f.manifest)).success).toBe(false);
@@ -95,9 +106,10 @@ describe('read-only drift', () => {
     const f = await fixture();
     const before = await snapshot(f.base);
     const report = await checkDrift(options(f));
-    expect(report).toEqual({ status: 'clean', checked: 2, skipped: 0, issues: [], coverage: {
+    expect(report).toEqual({ status: 'clean', target: 'example', checked: 2, skipped: 0, issues: [], coverage: {
       sources: { expected: 1, checked: 1, skipped: 0 }, outputs: { expected: 1, checked: 1, skipped: 0 },
-    } });
+    }, freshness: { status: 'fresh', checked: 1 }, consistency: { status: 'consistent', checked: 1 },
+      roots: { source: 'configured', target: 'configured' } });
     expect(await snapshot(f.base)).toEqual(before);
     expect(JSON.parse(JSON.stringify(report))).toEqual(report);
   });
@@ -141,9 +153,23 @@ describe('read-only drift', () => {
       expect(report.issues[0]!.kind).toBe('stale');
     }
   });
+  test('source revision freshness is independent from matching source and output hashes', async () => {
+    const f = await fixture();
+    f.manifest.sourceRevision = 'revision-a';
+    const report = await checkDrift(options(f, { expectedSourceRevision: 'revision-b', targetName: 'claude-disposable' }));
+    expect(report.status).toBe('drift');
+    expect(report.target).toBe('claude-disposable');
+    expect(report.freshness).toEqual({ status: 'stale', checked: 1 });
+    expect(report.consistency).toEqual({ status: 'consistent', checked: 1 });
+    expect(report.checked).toBe(2);
+  });
   test('unset or absent explicit target never gives a fresh-install green', async () => {
     const f = await fixture();
-    for (const targetRoot of ['', join(f.base, 'absent')]) expect((await checkDrift(options(f, { targetRoot }))).status).toBe('indeterminate');
+    expect((await checkDrift(options(f, { targetRoot: '' }))).status).toBe('indeterminate');
+    const missing = await checkDrift(options(f, { targetRoot: join(f.base, 'absent'), targetName: 'configured-home' }));
+    expect(missing.status).toBe('indeterminate');
+    expect(missing.target).toBe('configured-home');
+    expect(missing.roots).toEqual({ source: 'configured', target: 'missing' });
   });
   test('one unreadable entry dominates known drift', async () => {
     const f = await fixture();

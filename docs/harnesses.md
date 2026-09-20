@@ -78,7 +78,28 @@ No ambient home or configuration is selected. The source must contain `src`, `co
 
 Source, stage, target, and the state directory must be disjoint real directories without symlink components. State files/sidecars reject links. The caller's absolute Bun path is resolved, checked executable, and probed under empty `PATH`; its reported version must equal the rendering process's Bun version. The shim quotes every path and uses only shell builtins before `exec` of resolved Bun. The installed module-load boundary catches a missing or invalid bundle. It does not require the source checkout, stage, dependency tree, shell startup files, or PATH after installation.
 
-The renderer refuses **every existing registration**, including valid JSON and previously owned settings. No merge option exists. A registration created between rendering and installation is an unowned collision that the installer refuses. After installation, user changes to settings are preserved by uninstall and reported as partial removal. Uninstall leaves operational runtime state in the separate state directory; installer control residue follows [the installer contract](install.md).
+The renderer treats `settings.json` as a shared operator document. It reads one
+bounded, unaliased JSON object, preserves unknown keys and unrelated hook groups,
+and stages a document containing exactly one AOS `PreToolUse` array item. The
+manifest binds the complete pre-merge byte digest, the JSON array path, and the
+canonical digest of that item. Rendering does not mutate the target.
+
+The installer adopts that shared document only when its bytes still match the
+rendered base. Later generations may fold in unrelated operator edits only while
+the previously owned AOS item remains exact and unambiguous. An edited, missing,
+or duplicated AOS item is a visible conflict. Uninstall removes that exact item
+while retaining unrelated hooks and settings, including later edits. If AOS
+created an otherwise empty document, uninstall removes it; otherwise it leaves a
+normalized operator JSON document. Every other newly rendered output declares
+`framework-file` ownership. Legacy manifests without an explicit class remain
+readable as whole-file ownership.
+
+The review loop is repeatable: render into an empty disposable stage (plan), run
+read-only drift against the manifest (diff), inspect the manifest/classes/modes,
+install (apply), then run drift again (verify). Source freshness and installed
+hash consistency are separate drift axes. Uninstall leaves operational runtime
+state in the separate state directory and the stable installer coordination
+inode described in [the installer contract](install.md).
 
 ## Verification and candidate limitations
 
@@ -94,8 +115,9 @@ Remaining limits:
 - Live host registration/loading, trust prompts, permission handling, and vendor version compatibility are unverified. Tests directly execute the exact command/args from generated settings; they do not launch the vendor application.
 - The [host timeout contract](https://code.claude.com/docs/en/hooks#timeouts) can discard a command hook's output. Because the adapter emits no permission decision, a missing shim, unusable Bun binary, corrupted startup boundary, OS kill, or host cancellation can only suppress a diagnostic report — it cannot turn the adapter into a gate, and it cannot change the host's decision. No command hook can promise a live fail-closed gate under those conditions. This adapter is deliberately not certified for live enforcement.
 - If the shim itself runs but its copied bundle, launcher, config, or Bun binary is unavailable, its startup boundary prints a no-decision `indeterminate` report, writes a diagnostic to stderr, and exits `1`. The launcher also catches bundle-load failure. A missing or unlaunchable shim cannot emit this fallback. These tests exercise subprocess output; live host handling remains unverified.
-- Only edit/write events are registered. There is no shell-tool coverage, session-start adapter, reference tool, Windows shim, merge/upgrade workflow, retention policy, or signed evidence collector.
+- Only edit/write events are registered. There is no shell-tool coverage, session-start adapter, reference tool, Windows shim, retention policy, or signed evidence collector.
 - Bundling and filesystem checks assume a quiescent caller-controlled source/stage. They are not a build sandbox or protection against hostile concurrent directory replacement. The selected executable remains an external runtime dependency.
 - Runtime output above the adapter ceiling is refused even if a receipt already records a complete shadow computation. That receipt still cannot authorize a live action.
 
-No frozen API edit was needed for this delivery. Safe registration merging and live evidence collection remain separate work, not hidden adapter behavior. Parent verification and independent adapter review are still required.
+Live evidence collection remains separate work, not hidden adapter behavior.
+Parent verification and independent adapter review are still required.

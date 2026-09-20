@@ -214,7 +214,7 @@ export type Failpoint =
  * death would leave) and reports `interrupted`; `exit` terminates the process
  * mid-transaction. Production callers must not set this field.
  */
-export type FailpointMode = 'abort' | 'crash' | 'exit';
+export type FailpointMode = 'abort' | 'crash' | 'exit' | 'stop';
 export interface Failpoints {
   at: Failpoint;
   mode: FailpointMode;
@@ -258,6 +258,13 @@ export interface OwnershipEntry {
   digest: string;
   /** Absent in legacy state: permissions are unknown and mutation is refused. */
   mode?: number;
+  /** Absent means a legacy whole-file entry. */
+  ownership?: 'framework-file' | 'managed-json-item';
+  /** Present only for a managed JSON array item. */
+  jsonPath?: string[];
+  itemDigest?: string;
+  /** True when AOS created the surrounding document from an absent target. */
+  created?: boolean;
 }
 
 /** Committed record of what this owner installed into a target root. */
@@ -266,6 +273,7 @@ export interface OwnershipState {
   owner: string;
   generation: number;
   harness: string;
+  sourceRevision?: string;
   entries: OwnershipEntry[];
   directories?: string[];
 }
@@ -277,6 +285,17 @@ const OwnershipEntrySchema = z.strictObject({
   path: z.string().refine(isInstallPath),
   digest: z.string().length(71).regex(DIGEST_PATTERN),
   mode: ModeSchema.optional(),
+  ownership: z.enum(['framework-file', 'managed-json-item']).optional(),
+  jsonPath: z.array(z.string().min(1).max(128)).min(1).max(16).optional(),
+  itemDigest: z.string().length(71).regex(DIGEST_PATTERN).optional(),
+  created: z.boolean().optional(),
+}).superRefine((entry, ctx) => {
+  const managed = entry.ownership === 'managed-json-item';
+  for (const field of ['jsonPath', 'itemDigest', 'created'] as const) {
+    if (managed ? entry[field] === undefined : entry[field] !== undefined) {
+      ctx.addIssue({ code: 'custom', path: [field], message: 'Ownership metadata does not match its class' });
+    }
+  }
 });
 
 const OwnershipStateSchema = z.strictObject({
@@ -284,6 +303,7 @@ const OwnershipStateSchema = z.strictObject({
   owner: z.string().refine((value) => value.trim().length > 0),
   generation: z.int().positive(),
   harness: z.string().min(1),
+  sourceRevision: z.string().min(1).max(256).optional(),
   entries: z.array(OwnershipEntrySchema),
   directories: z.array(z.string().refine(isInstallPath)).optional(),
 });
@@ -305,6 +325,9 @@ const PlannedEntrySchema = z.strictObject({
   mode: ModeSchema.optional(),
   action: z.enum(['add', 'replace', 'remove']),
   backup: z.string().refine(isInstallPath).nullable(),
+  /** Exact pre-image digest; differs from state only for a verified shared JSON document. */
+  priorDigest: z.string().length(71).regex(DIGEST_PATTERN).optional(),
+  priorMode: ModeSchema.optional(),
 });
 
 const JournalRecordSchema = z.discriminatedUnion('phase', [
@@ -334,7 +357,7 @@ type PlannedEntry = z.infer<typeof PlannedEntrySchema>;
 
 const FailpointsSchema = z.strictObject({
   at: z.enum(['after-lock', 'after-journal', 'after-stage', 'after-backup-link', 'after-place-link', 'after-move-link', 'after-state-write', 'after-plan', 'after-backup', 'after-place', 'before-state', 'after-state', 'after-state-unlink', 'after-recovery-decision', 'after-rollback-unlink', 'after-restore-link', 'after-cleanup-file', 'after-cleanup-journal', 'before-cleanup']),
-  mode: z.enum(['abort', 'crash', 'exit']),
+  mode: z.enum(['abort', 'crash', 'exit', 'stop']),
 });
 
 const OwnerSchema = z.string().refine((value) => value.trim().length > 0);
@@ -360,8 +383,9 @@ const RecoveryTestOptionsSchema = RecoveryOptionsSchema.extend({ failpoints: Fai
 
 const KNOWN_FIELDS = new Set([
   'sourceRoot', 'targetRoot', 'stageRoot', 'manifest', 'owner', 'expectedGeneration', 'failpoints', 'assumeDead',
-  'schemaVersion', 'generation', 'harness', 'sources', 'outputs', 'path', 'digest', 'at', 'mode',
+  'schemaVersion', 'generation', 'harness', 'sourceRevision', 'sources', 'outputs', 'path', 'digest', 'at', 'mode',
   'modes', 'entryOwner', 'entries', 'priorState', 'nextState', 'operation', 'nonce', 'pid', 'seq', 'phase',
+  'ownership', 'baseDigest', 'jsonPath', 'itemDigest', 'created', 'priorDigest', 'priorMode',
 ]);
 
 // ---------------------------------------------------------------------------
@@ -377,6 +401,74 @@ function errnoOf(error: unknown): string | undefined {
 
 function digestOf(bytes: Uint8Array): string {
   return `sha256:${new Bun.CryptoHasher('sha256').update(bytes).digest('hex')}`;
+}
+
+function jsonDigest(value: unknown): string {
+  return digestOf(Buffer.from(JSON.stringify(value)));
+}
+
+function jsonRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype;
+}
+
+function arrayAt(root: unknown, path: readonly string[]): unknown[] | null {
+  let value: unknown = root;
+  for (const part of path) {
+    if (!jsonRecord(value) || !Object.hasOwn(value, part)) return null;
+    value = value[part];
+  }
+  return Array.isArray(value) ? value : null;
+}
+
+async function managedItemIntact(root: string, entry: OwnershipEntry, actualDigest: string): Promise<boolean> {
+  if (entry.ownership !== 'managed-json-item' || !entry.jsonPath || !entry.itemDigest) return false;
+  const verified = await readVerifiedFile(root, entry.path, actualDigest);
+  if (!verified.ok) return false;
+  try {
+    const parsed: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(verified.value));
+    const array = arrayAt(parsed, entry.jsonPath);
+    return !!array && array.filter(item => jsonDigest(item) === entry.itemDigest).length === 1;
+  } catch { return false; }
+}
+
+async function stagedManagedItemValid(root: string, path: string, digest: string,
+  jsonPath: readonly string[], itemDigest: string): Promise<boolean> {
+  const verified = await readVerifiedFile(root, path, digest);
+  if (!verified.ok) return false;
+  try {
+    const parsed: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(verified.value));
+    const array = arrayAt(parsed, jsonPath);
+    return !!array && array.filter(item => jsonDigest(item) === itemDigest).length === 1;
+  } catch { return false; }
+}
+
+async function removeManagedItem(root: string, entry: OwnershipEntry, actualDigest: string): Promise<Uint8Array | null | false> {
+  if (entry.ownership !== 'managed-json-item' || !entry.jsonPath || !entry.itemDigest) return false;
+  const verified = await readVerifiedFile(root, entry.path, actualDigest);
+  if (!verified.ok) return false;
+  try {
+    const parsed: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(verified.value));
+    if (!jsonRecord(parsed)) return false;
+    const array = arrayAt(parsed, entry.jsonPath);
+    if (!array) return false;
+    const indexes = array.map((item, index) => jsonDigest(item) === entry.itemDigest ? index : -1).filter(index => index >= 0);
+    if (indexes.length !== 1) return false;
+    array.splice(indexes[0]!, 1);
+    if (entry.created) {
+      for (let depth = entry.jsonPath.length; depth > 0; depth--) {
+        let parent: unknown = parsed;
+        for (const part of entry.jsonPath.slice(0, depth - 1)) parent = jsonRecord(parent) ? parent[part] : undefined;
+        if (!jsonRecord(parent)) break;
+        const key = entry.jsonPath[depth - 1]!;
+        const value = parent[key];
+        if ((Array.isArray(value) && value.length === 0) || (jsonRecord(value) && Object.keys(value).length === 0)) delete parent[key];
+        else break;
+      }
+      if (Object.keys(parsed).length === 0) return null;
+    }
+    return Buffer.from(JSON.stringify(parsed, null, 2) + '\n');
+  } catch { return false; }
 }
 
 function makeIssue(kind: InstallIssueKind, code: InstallIssueCode, message: string, path?: string, pathCode?: PathFailureCode): InstallIssue {
@@ -441,13 +533,16 @@ function hasPathConflict(paths: readonly string[]): boolean {
 function statesEqual(a: OwnershipState | null, b: OwnershipState | null): boolean {
   if (a === null || b === null) return a === b;
   if (JSON.stringify([...(a.directories ?? [])].sort()) !== JSON.stringify([...(b.directories ?? [])].sort())) return false;
-  if (a.generation !== b.generation || a.owner !== b.owner || a.harness !== b.harness) return false;
+  if (a.generation !== b.generation || a.owner !== b.owner || a.harness !== b.harness ||
+    a.sourceRevision !== b.sourceRevision) return false;
   const left = sortPaths(a.entries.map((entry) => entry.path));
   const right = sortPaths(b.entries.map((entry) => entry.path));
   if (left.length !== right.length) return false;
   return right.every(path => {
     const x = a.entries.find(entry => entry.path === path), y = b.entries.find(entry => entry.path === path)!;
-    return x !== undefined && x.digest === y.digest && x.mode === y.mode;
+    return x !== undefined && x.digest === y.digest && x.mode === y.mode &&
+      x.ownership === y.ownership && x.itemDigest === y.itemDigest && x.created === y.created &&
+      JSON.stringify(x.jsonPath) === JSON.stringify(y.jsonPath);
   });
 }
 
@@ -726,6 +821,8 @@ interface TxContext {
   seq: number;
   createdDirs: string[];
   applied: number;
+  /** Transaction-generated replacement bytes (used for managed shared documents on uninstall). */
+  generated?: Map<string, Uint8Array>;
   fired?: boolean;
 }
 
@@ -751,6 +848,7 @@ function fireFailpoint(ctx: TxContext, at: Failpoint): 'continue' | 'abort' | 'c
   if (!failpoints || failpoints.at !== at || ctx.fired) return 'continue';
   ctx.fired = true;
   if (failpoints.mode === 'exit') { process.exit(70); }
+  if (failpoints.mode === 'stop') { process.kill(process.pid, 'SIGSTOP'); return 'continue'; }
   return failpoints.mode;
 }
 
@@ -884,10 +982,15 @@ async function executeTransaction(ctx: TxContext, plan: MutationPlan): Promise<T
     for (const entry of plan.entries) {
       const staged = `${staging}/${entry.path}`;
       if (entry.action !== 'remove') {
-        if (!ctx.stageRoot) throw new Error('stage changed');
-        const verified = await readVerifiedFile(ctx.stageRoot, entry.path, entry.digest);
-        if (!verified.ok) throw new Error('stage changed');
-        const bytes = verified.value;
+        let bytes = ctx.generated?.get(entry.path);
+        if (bytes) {
+          if (digestOf(bytes) !== entry.digest) throw new Error('generated stage changed');
+        } else {
+          if (!ctx.stageRoot) throw new Error('stage changed');
+          const verified = await readVerifiedFile(ctx.stageRoot, entry.path, entry.digest);
+          if (!verified.ok) throw new Error('stage changed');
+          bytes = verified.value;
+        }
         await ensureDirectory(ctx.targetRoot, parentDir(staged), []);
         const handle = await open(join(ctx.targetRoot, staged), 'wx', 0o600);
         try {
@@ -905,15 +1008,17 @@ async function executeTransaction(ctx: TxContext, plan: MutationPlan): Promise<T
         shot(ctx, 'after-stage');
       }
       if (entry.backup) {
-        const old = plan.priorState!.entries.find(item => item.path === entry.path)!;
-        if (old.mode === undefined || !await matches(ctx.targetRoot, entry.path, old.digest, old.mode)) throw new Error('target changed');
+        const old = plan.priorState?.entries.find(item => item.path === entry.path);
+        const priorDigest = entry.priorDigest ?? old?.digest;
+        const priorMode = entry.priorMode ?? old?.mode;
+        if (!priorDigest || priorMode === undefined || !await matches(ctx.targetRoot, entry.path, priorDigest, priorMode)) throw new Error('target changed');
         await ensureDirectory(ctx.targetRoot, parentDir(entry.backup), []);
         // Keep the pre-image linked until cleanup. Link creation refuses collisions.
         await link(join(ctx.targetRoot, entry.path), join(ctx.targetRoot, entry.backup));
         await syncDir(ctx.targetRoot, parentDir(entry.backup));
         shot(ctx, 'after-backup-link');
         if (!await sameFile(ctx.targetRoot, entry.path, entry.backup)) throw new Error('target changed');
-        await unlinkKnown(ctx.targetRoot, entry.path, old.digest, old.mode);
+        await unlinkKnown(ctx.targetRoot, entry.path, priorDigest, priorMode);
         await appendRecord(ctx.journal!, { seq: ++ctx.seq, phase: 'backed-up', path: entry.path });
       }
       shot(ctx, 'after-backup');
@@ -975,8 +1080,10 @@ async function rollbackInProcess(ctx: TxContext, plan: MutationPlan): Promise<bo
           shot(ctx, 'after-rollback-unlink');
         }
       } else if (backup) {
-        if (!old || old.mode === undefined || !await matches(ctx.targetRoot, entry.backup!, old.digest, old.mode)) return false;
-        if (current && await sameFile(ctx.targetRoot, entry.backup!, entry.path) && await matches(ctx.targetRoot, entry.path, old.digest, old.mode)) continue;
+        const priorDigest = entry.priorDigest ?? old?.digest;
+        const priorMode = entry.priorMode ?? old?.mode;
+        if (!priorDigest || priorMode === undefined || !await matches(ctx.targetRoot, entry.backup!, priorDigest, priorMode)) return false;
+        if (current && await sameFile(ctx.targetRoot, entry.backup!, entry.path) && await matches(ctx.targetRoot, entry.path, priorDigest, priorMode)) continue;
         if (current) {
           if (entry.action !== 'replace' || !await sameFile(ctx.targetRoot, staged, entry.path)) return false;
           await unlinkKnown(ctx.targetRoot, entry.path, entry.digest, entry.mode);
@@ -986,6 +1093,11 @@ async function rollbackInProcess(ctx: TxContext, plan: MutationPlan): Promise<bo
         await link(join(ctx.targetRoot, entry.backup!), join(ctx.targetRoot, entry.path));
         shot(ctx, 'after-restore-link');
         await syncDir(ctx.targetRoot, parentDir(entry.path));
+      } else if (entry.priorDigest && entry.priorMode !== undefined && current &&
+        await matches(ctx.targetRoot, entry.path, entry.priorDigest, entry.priorMode)) {
+        // A managed shared document had not yet reached backup creation; its
+        // exact transaction-bound pre-image is still in place.
+        continue;
       } else if (!old || !current || !await matches(ctx.targetRoot, entry.path, old.digest, old.mode)) return false;
     }
     const staging = `${CONTROL_STAGING_PATH}/${ctx.nonce}`;
@@ -1029,8 +1141,11 @@ async function cleanupTransaction(targetRoot: string, journal: FileHandle | null
       for (const entry of plan.entries) {
         const files = [{path: `${CONTROL_STAGING_PATH}/${nonce}/${entry.path}`, digest: entry.digest, mode: entry.mode}];
         if (entry.backup) {
-          const old = plan.priorState!.entries.find(old => old.path === entry.path)!;
-          files.push({ path: entry.backup, digest: old.digest, mode: old.mode });
+          const old = plan.priorState?.entries.find(old => old.path === entry.path);
+          const digest = entry.priorDigest ?? old?.digest;
+          const mode = entry.priorMode ?? old?.mode;
+          if (!digest || mode === undefined) throw new Error('backup evidence missing');
+          files.push({ path: entry.backup, digest, mode });
         }
         for (const file of files) {
           await unlinkKnown(targetRoot, file.path, file.digest, file.mode);
@@ -1222,7 +1337,11 @@ async function installLocked(options: InstallTestOptions, locked = false, schema
 
     const desiredMode = (path: string) => input.modes?.[path] ?? state?.entries.find(entry => entry.path === path)?.mode ?? 0o600;
     if (state && state.generation === manifest.generation && (state.harness !== manifest.harness ||
-      manifest.outputs.some(entry => !state.entries.some(old => old.path === entry.path && old.digest === entry.digest && (old.mode === undefined ? input.modes?.[entry.path] === undefined : old.mode === desiredMode(entry.path)))))) {
+      state.sourceRevision !== manifest.sourceRevision || manifest.outputs.some(entry => !state.entries.some(old =>
+        old.path === entry.path && old.digest === entry.digest &&
+        (old.ownership ?? 'framework-file') === (entry.ownership ?? 'framework-file') &&
+        old.itemDigest === entry.itemDigest && JSON.stringify(old.jsonPath) === JSON.stringify(entry.jsonPath) &&
+        (old.mode === undefined ? input.modes?.[entry.path] === undefined : old.mode === desiredMode(entry.path)))))) {
       report.issues.push(makeIssue('manifest', 'generation-mismatch', 'Changed output ownership requires a newer generation'));
       await finishCleanup(report, targetRoot, journal, ctx.nonce); return report;
     }
@@ -1233,13 +1352,14 @@ async function installLocked(options: InstallTestOptions, locked = false, schema
       report.issues.push(makeIssue('conflict', 'target-unowned', 'Old and new paths contain ambiguous aliases or ancestry'));
       await finishCleanup(report, targetRoot, journal, ctx.nonce); return report;
     }
-    const outputs = new Map(manifest.outputs.map((entry) => [entry.path, entry.digest]));
+    const outputs = new Map(manifest.outputs.map((entry) => [entry.path, entry]));
     const entries: PlannedEntry[] = [];
     const nextEntries: OwnershipEntry[] = [];
     const preserved: OwnershipEntry[] = [];
 
     for (const path of sortPaths(manifest.outputs.map((entry) => entry.path))) {
-      const digest = outputs.get(path)!;
+      const output = outputs.get(path)!;
+      const digest = output.digest;
       const mode = desiredMode(path);
       const prior = state?.entries.find(entry => entry.path === path);
       const recorded = owned.get(path);
@@ -1253,17 +1373,43 @@ async function installLocked(options: InstallTestOptions, locked = false, schema
         continue;
       }
       if (!current.ok) {
+        if (output.ownership === 'managed-json-item' && output.baseDigest !== null) {
+          blockers.push(makeIssue('conflict', 'target-modified', 'Managed document no longer matches the rendered base', path));
+          continue;
+        }
+        if (output.ownership === 'managed-json-item' &&
+          !await stagedManagedItemValid(stageRoot, path, digest, output.jsonPath!, output.itemDigest!)) {
+          blockers.push(makeIssue('stage', 'stage-modified', 'Managed staged document does not contain exactly one declared item', path));
+          continue;
+        }
         // Absent: create it. A previously owned missing file is re-created.
         entries.push({ path, digest, mode, action: 'add', backup: null });
-        nextEntries.push({ path, digest, mode });
+        nextEntries.push(output.ownership === 'managed-json-item'
+          ? { path, digest, mode, ownership: 'managed-json-item', jsonPath: output.jsonPath,
+            itemDigest: output.itemDigest, created: prior?.created ?? true }
+          : { path, digest, mode, ...(output.ownership ? { ownership: output.ownership } : {}) });
         continue;
       }
       if (recorded === undefined) {
-        blockers.push(makeIssue('conflict', 'target-unowned',
-          'Target path exists but is not owned by this owner; ownership takeover is refused', path));
+        if (output.ownership !== 'managed-json-item' || output.baseDigest !== current.value ||
+          !await stagedManagedItemValid(stageRoot, path, digest, output.jsonPath!, output.itemDigest!)) {
+          blockers.push(makeIssue('conflict', 'target-unowned',
+            'Target path exists but is not safely adoptable by the declared ownership class', path));
+          continue;
+        }
+        const currentInfo = await safeInfo(targetRoot, path);
+        if (!currentInfo?.isFile()) { blockers.push(makeIssue('conflict', 'target-not-file', 'Managed target is not a regular file', path)); continue; }
+        entries.push({ path, digest, mode, action: 'replace', backup, priorDigest: current.value,
+          priorMode: process.platform === 'win32' ? mode : currentInfo.mode & 0o7777 });
+        nextEntries.push({ path, digest, mode, ownership: 'managed-json-item', jsonPath: output.jsonPath,
+          itemDigest: output.itemDigest, created: false });
         continue;
       }
-      if (current.value !== recorded || (prior?.mode !== undefined && !await modeMatches(targetRoot, path, prior.mode))) {
+      const managed = prior?.ownership === 'managed-json-item' && output.ownership === 'managed-json-item';
+      const managedCurrent = managed && output.baseDigest === current.value &&
+        await managedItemIntact(targetRoot, prior!, current.value) &&
+        await stagedManagedItemValid(stageRoot, path, digest, output.jsonPath!, output.itemDigest!);
+      if ((!managedCurrent && current.value !== recorded) || (prior?.mode !== undefined && !await modeMatches(targetRoot, path, prior.mode))) {
         blockers.push(makeIssue('conflict', 'target-modified',
           'Owned target file was modified locally; the ambiguous conflict is refused', path));
         continue;
@@ -1273,9 +1419,13 @@ async function installLocked(options: InstallTestOptions, locked = false, schema
         blockers.push(makeIssue('conflict', 'target-modified', 'Legacy ownership has no permission evidence; replacement is refused', path));
         continue;
       }
-      if (current.value === digest && prior.mode === mode) { nextEntries.push({ path, digest, mode }); continue; }
-      entries.push({ path, digest, mode, action: 'replace', backup });
-      nextEntries.push({ path, digest, mode });
+      const next: OwnershipEntry = output.ownership === 'managed-json-item'
+        ? { path, digest, mode, ownership: 'managed-json-item', jsonPath: output.jsonPath,
+          itemDigest: output.itemDigest, created: prior.created ?? false }
+        : { path, digest, mode, ...(output.ownership ? { ownership: output.ownership } : {}) };
+      if (current.value === digest && prior.mode === mode && !managed) { nextEntries.push(next); continue; }
+      entries.push({ path, digest, mode, action: 'replace', backup, priorDigest: current.value });
+      nextEntries.push(next);
     }
 
     // Stale entries: owned last generation, absent from this manifest.
@@ -1294,7 +1444,9 @@ async function installLocked(options: InstallTestOptions, locked = false, schema
         report.issues.push(makeIssue('target', 'stale-preserved', 'Previously installed file could not be read and is preserved', entry.path, current.code));
         continue;
       }
-      if (current.value !== entry.digest || !await modeMatches(targetRoot, entry.path, entry.mode)) {
+      if ((entry.ownership === 'managed-json-item'
+        ? !await managedItemIntact(targetRoot, entry, current.value)
+        : current.value !== entry.digest) || !await modeMatches(targetRoot, entry.path, entry.mode)) {
         report.counts.preserved++;
         report.residue.push(entry.path);
         preserved.push(entry);
@@ -1302,7 +1454,7 @@ async function installLocked(options: InstallTestOptions, locked = false, schema
         continue;
       }
       entries.push({ path: entry.path, digest: entry.digest, mode: entry.mode, action: 'remove',
-        backup: `${CONTROL_BACKUP_PATH}/${ctx.nonce}/${entry.path}` });
+        backup: `${CONTROL_BACKUP_PATH}/${ctx.nonce}/${entry.path}`, priorDigest: current.value });
     }
 
     if (blockers.length > 0) {
@@ -1318,6 +1470,7 @@ async function installLocked(options: InstallTestOptions, locked = false, schema
     ctx.createdDirs = await missingParents(targetRoot, manifest.outputs.map(entry => entry.path));
     const nextState: OwnershipState = {
       schemaVersion: 1, owner: input.owner, generation: manifest.generation, harness: manifest.harness,
+      sourceRevision: manifest.sourceRevision,
       directories: [...new Set([...(state?.directories ?? []), ...ctx.createdDirs])].filter(dir => [...nextEntries, ...preserved].some(entry => entry.path.startsWith(`${dir}/`))).sort(),
       entries: [...nextEntries, ...preserved].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
     };
@@ -1453,7 +1606,7 @@ async function uninstallLocked(options: UninstallTestOptions): Promise<InstallRe
   const journal = journalOpen.handle;
   const ctx: TxContext = {
     targetRoot, stageRoot: null, nonce, failpoints: input.failpoints, journal, seq: 0,
-    createdDirs: [], applied: 0,
+    createdDirs: [], applied: 0, generated: new Map(),
   };
   try {
     shot(ctx, 'after-journal');
@@ -1478,6 +1631,30 @@ async function uninstallLocked(options: UninstallTestOptions): Promise<InstallRe
         report.issues.push(makeIssue('conflict', 'stale-preserved', 'Owned entry is not a readable regular file and is preserved', path, current.code));
         continue;
       }
+      if (entry.ownership === 'managed-json-item') {
+        if (!await modeMatches(targetRoot, entry.path, entry.mode)) {
+          report.counts.preserved++; report.residue.push(path); residue.push(entry);
+          report.issues.push(makeIssue('conflict', 'target-modified', 'Managed document mode changed and is preserved', path));
+          continue;
+        }
+        const removed = await removeManagedItem(targetRoot, entry, current.value);
+        if (removed === false) {
+          report.counts.preserved++; report.residue.push(path); residue.push(entry);
+          report.issues.push(makeIssue('conflict', 'target-modified', 'Managed JSON item changed or became ambiguous and is preserved', path));
+          continue;
+        }
+        const backup = `${CONTROL_BACKUP_PATH}/${ctx.nonce}/${path}`;
+        if (removed === null) {
+          entries.push({ path, digest: entry.digest, mode: entry.mode, action: 'remove', backup,
+            priorDigest: current.value, priorMode: entry.mode });
+        } else {
+          const nextDigest = digestOf(removed);
+          ctx.generated!.set(path, removed);
+          entries.push({ path, digest: nextDigest, mode: entry.mode, action: 'replace', backup,
+            priorDigest: current.value, priorMode: entry.mode });
+        }
+        continue;
+      }
       if (current.value !== entry.digest || !await modeMatches(targetRoot, entry.path, entry.mode)) {
         report.counts.preserved++;
         report.residue.push(path);
@@ -1485,11 +1662,13 @@ async function uninstallLocked(options: UninstallTestOptions): Promise<InstallRe
         report.issues.push(makeIssue('conflict', 'target-modified', 'Owned file was modified locally and is preserved, not removed', path));
         continue;
       }
-      entries.push({ path, digest: entry.digest, mode: entry.mode, action: 'remove', backup: `${CONTROL_BACKUP_PATH}/${ctx.nonce}/${path}` });
+      entries.push({ path, digest: entry.digest, mode: entry.mode, action: 'remove', backup: `${CONTROL_BACKUP_PATH}/${ctx.nonce}/${path}`,
+        priorDigest: current.value, priorMode: entry.mode });
     }
 
     const nextState: OwnershipState | null = residue.length === 0 ? null : {
       schemaVersion: 1, owner: input.owner, generation: state.generation, harness: state.harness,
+      sourceRevision: state.sourceRevision,
       directories: (state.directories ?? []).filter(dir => residue.some(entry => entry.path.startsWith(`${dir}/`))),
       entries: [...residue].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
     };
@@ -1738,22 +1917,32 @@ function validJournal(records: JournalRecord[]): boolean {
   const events: { phase: string; path?: string }[] = [];
   for (const entry of plan.entries) {
     if (reserved(entry.path)) return false;
-    const expected = (entry.action === 'remove' ? plan.priorState : plan.nextState)?.entries.find(item => item.path === entry.path);
+    const expected = (plan.operation === 'uninstall' || entry.action === 'remove' ? plan.priorState : plan.nextState)
+      ?.entries.find(item => item.path === entry.path);
     if (entry.mode !== expected?.mode) return false;
     if (entry.action === 'add') {
       if (entry.backup !== null || next.get(entry.path) !== entry.digest || plan.operation !== 'install') return false;
     } else {
-      if (!old.has(entry.path) || entry.backup !== `${CONTROL_BACKUP_PATH}/${plan.nonce}/${entry.path}`) return false;
+      const prior = plan.priorState?.entries.find(item => item.path === entry.path);
+      const adopted = !prior && entry.action === 'replace' && plan.operation === 'install' &&
+        plan.nextState?.entries.find(item => item.path === entry.path)?.ownership === 'managed-json-item' &&
+        entry.priorDigest !== undefined && entry.priorMode !== undefined;
+      if ((!old.has(entry.path) && !adopted) || entry.backup !== `${CONTROL_BACKUP_PATH}/${plan.nonce}/${entry.path}`) return false;
       events.push({ phase: 'backed-up', path: entry.path });
       if (entry.action === 'remove') {
         if (next.has(entry.path) || entry.digest !== old.get(entry.path)) return false;
-      } else if (next.get(entry.path) !== entry.digest || plan.operation !== 'install') return false;
+      } else if (plan.operation === 'install') {
+        if (next.get(entry.path) !== entry.digest) return false;
+      } else if (next.has(entry.path) || prior?.ownership !== 'managed-json-item') return false;
     }
     if (entry.action !== 'remove') events.push({ phase: 'placed', path: entry.path });
   }
   for (const [path, digest] of next) {
-    if (!planned.has(path) && (old.get(path) !== digest ||
-      plan.priorState?.entries.find(entry => entry.path === path)?.mode !== plan.nextState?.entries.find(entry => entry.path === path)?.mode)) return false;
+    if (!planned.has(path)) {
+      const before = plan.priorState?.entries.find(entry => entry.path === path);
+      const after = plan.nextState?.entries.find(entry => entry.path === path);
+      if (old.get(path) !== digest || !before || !after || JSON.stringify(before) !== JSON.stringify(after)) return false;
+    }
   }
   // Missing stale files may be dropped without a mutation entry.
   if (new Set(plan.createdDirs).size !== plan.createdDirs.length || plan.createdDirs.some(dir => reserved(dir) ||

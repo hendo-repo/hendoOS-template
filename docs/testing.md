@@ -137,3 +137,25 @@ indexes, idempotent closeout, newer-writer refusal, and shared tracker grammar.
 `bun run prove:skills` is an opt-in local compatibility proof described in
 `docs/working-loop.md`; it is not part of `bun verify` because Codex and Hermes
 are external installations.
+
+# Phase 4 lifecycle checks
+
+`bun test tests/drift.test.ts tests/install.test.ts tests/hooks.test.ts
+tests/indexes.test.ts tests/restore.test.ts tests/doctor.test.ts` covers independent source freshness,
+installed consistency, explicit output ownership, managed shared-settings
+merge/update/uninstall, N to N+1 content behavior, crash recovery, retained-state
+uninstall, stale index publication, and foreign-marker diagnosis. All roots are
+disposable. The index race starts two create-only publishers for one name and
+requires exactly one complete artifact plus one `output-exists` refusal.
+
+The installer suite includes a POSIX stop/resume barrier: writer A pauses after
+creating and journaling its run-owned backup, writer B places a newer target
+inode, and A resumes. A reports partial recovery, preserves B's bytes, and keeps
+the verified backup/journal instead of overwriting either. `tests/restore.test.ts`
+copies only the declared source payload, performs a separate frozen offline
+dependency install, renders and installs into a path containing spaces, verifies
+every hash and mode, removes source/stage, exercises unavailable vault/tracker,
+expired-authentication and network reasons, then uninstalls and checks the exact
+operator and retained-state listing. This proves the disposable fixture on the
+recorded platform; it does not prove real account authentication, remote service
+availability, power-loss durability, or a live harness registration.

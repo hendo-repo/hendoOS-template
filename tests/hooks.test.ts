@@ -5,6 +5,8 @@ import { join, resolve } from 'node:path';
 import { HARNESS_PROTOCOL, HookConfigSchema, nativeOperation, registration, hookReply } from '../src/protocols/harness';
 import { renderHarness, type RenderOptions } from '../src/effects/render';
 import { install, uninstall } from '../src/effects/install';
+import { install as installWithFaults, uninstall as uninstallWithFaults,
+  recoverInstall as recoverWithFaults } from '../src/effects/install-testing';
 import { StateStore } from '../src/state/store';
 import { RuntimeService, DEFAULT_CONFIG } from '../src/protocols/service';
 import { loadContent } from '../src/edges/content';
@@ -175,16 +177,64 @@ test('render/install invokes real registered shim with empty PATH and hostile pa
   expect(await readdir(rendered.targetRoot)).not.toContain('settings.json');
   expect(await lstat(f.options.statePath)).toBeDefined();
 });
-test('fresh registration only: existing settings and invalid merge requests are rejected untouched', async () => {
+test('managed registration preserves existing settings and hooks across install, upgrade and uninstall', async () => {
   const f = await setup(); const path = join(f.options.targetRoot, 'settings.json');
-  const original = '{"hooks":{},"unrelated":true}\n'; await writeFile(path, original);
-  await expect(renderHarness(f.options)).rejects.toThrow('existing registration');
+  const original = '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"/operator/hook"}]}]},"unrelated":true}\n';
+  await writeFile(path, original);
+  const rendered = await renderHarness(f.options);
+  // Render is a plan: it reads the shared document but does not mutate it.
   expect(await readFile(path, 'utf8')).toBe(original);
-  await rm(path);
+  const installed = await install({ sourceRoot, stageRoot: rendered.stageRoot, targetRoot: rendered.targetRoot,
+    owner: rendered.owner, manifest: rendered.manifest, modes: rendered.modes });
+  expect(installed.status).toBe('installed');
+  let settings = JSON.parse(await readFile(path, 'utf8'));
+  expect(settings.unrelated).toBe(true);
+  expect(settings.hooks.PreToolUse.map((item: { matcher: string }) => item.matcher)).toEqual(['Bash', 'Edit|Write']);
+
+  // An operator edit after install is folded into the next reviewed generation.
+  settings.operatorAdded = { retained: true };
+  await writeFile(path, JSON.stringify(settings, null, 2) + '\n');
+  const nextStage = join(f.base, 'stage-next'); await mkdir(nextStage);
+  const next = await renderHarness({ ...f.options, stageRoot: nextStage, generation: 2 });
+  const upgraded = await install({ sourceRoot, stageRoot: next.stageRoot, targetRoot: next.targetRoot,
+    owner: next.owner, manifest: next.manifest, modes: next.modes, expectedGeneration: 1 });
+  expect(upgraded.status).toBe('installed');
+  const removed = await uninstall({ targetRoot: next.targetRoot, owner: next.owner, expectedGeneration: 2 });
+  expect(removed.status).toBe('removed');
+  settings = JSON.parse(await readFile(path, 'utf8'));
+  expect(settings.operatorAdded).toEqual({ retained: true });
+  expect(settings.hooks.PreToolUse).toEqual([{ matcher: 'Bash', hooks: [{ type: 'command', command: '/operator/hook' }] }]);
+
   await expect(renderHarness({ ...f.options, merge: {} } as RenderOptions)).rejects.toThrow();
-  expect(await readdir(f.options.stageRoot)).toEqual([]);
   expect(() => registration('/temporary/${PLACEHOLDER}/run')).toThrow();
-});
+}, 15_000);
+test('managed settings adoption and removal recover through the shared transaction journal', async () => {
+  const f = await setup(); const path = join(f.options.targetRoot, 'settings.json');
+  const original = '{"operator":true,"hooks":{"PreToolUse":[]}}\n'; await writeFile(path, original);
+  const rendered = await renderHarness(f.options);
+  const interrupted = await installWithFaults({ sourceRoot, stageRoot: rendered.stageRoot,
+    targetRoot: rendered.targetRoot, owner: rendered.owner, manifest: rendered.manifest, modes: rendered.modes,
+    failpoints: { at: 'after-place', mode: 'crash' } });
+  expect(interrupted.status).toBe('interrupted');
+  const firstRecovery = await recoverWithFaults({ targetRoot: rendered.targetRoot, owner: rendered.owner, assumeDead: true });
+  expect(firstRecovery.status).toBe('recovered');
+  expect(await readFile(path, 'utf8')).toBe(original);
+
+  expect((await install({ sourceRoot, stageRoot: rendered.stageRoot, targetRoot: rendered.targetRoot,
+    owner: rendered.owner, manifest: rendered.manifest, modes: rendered.modes })).status).toBe('installed');
+  const settings = JSON.parse(await readFile(path, 'utf8'));
+  settings.operatorAfterInstall = true;
+  await writeFile(path, JSON.stringify(settings, null, 2) + '\n');
+  const removing = await uninstallWithFaults({ targetRoot: rendered.targetRoot, owner: rendered.owner,
+    failpoints: { at: 'after-place', mode: 'crash' } });
+  expect(removing.status).toBe('interrupted');
+  expect((await recoverWithFaults({ targetRoot: rendered.targetRoot, owner: rendered.owner, assumeDead: true })).status).toBe('recovered');
+  expect(JSON.parse(await readFile(path, 'utf8')).operatorAfterInstall).toBe(true);
+  expect((await uninstall({ targetRoot: rendered.targetRoot, owner: rendered.owner })).status).toBe('removed');
+  const final = JSON.parse(await readFile(path, 'utf8'));
+  expect(final.operator).toBe(true); expect(final.operatorAfterInstall).toBe(true);
+  expect(final.hooks.PreToolUse).toEqual([]);
+}, 15_000);
 test('source/target/stage/state overlap and symlink aliases refuse before staging', async () => {
   const f = await setup();
   for (const changed of [{ targetRoot: sourceRoot }, { stageRoot: f.options.targetRoot },

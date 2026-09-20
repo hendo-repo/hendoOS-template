@@ -231,6 +231,22 @@ describe('install lifecycle', () => {
     await expectCleanControl(f.targetRoot);
   });
 
+  test('N to N+1 keeps untouched frame bytes, surfaces edited-frame removal, and preserves operator additions', async () => {
+    const f = await fixture();
+    expect((await install(installOptions(f))).status).toBe('installed');
+    const frameBefore = await lstat(join(f.targetRoot, 'kernel.md'));
+    await writeFile(join(f.targetRoot, 'nested/reference.md'), 'operator edited former frame content\n');
+    await writeFile(join(f.targetRoot, 'operator-added.md'), 'operator owned\n');
+    const next = await f.restage({ 'kernel.md': 'rendered kernel v1\n' }, 2);
+    const report = await install(installOptions(f, { manifest: next, expectedGeneration: 1 }));
+    expect(report.status).toBe('partial');
+    expect(hasCode(report, 'stale-preserved')).toBe(true);
+    expect(report.residue).toEqual(['nested/reference.md']);
+    expect((await lstat(join(f.targetRoot, 'kernel.md'))).ino).toBe(frameBefore.ino);
+    expect(await readFile(join(f.targetRoot, 'nested/reference.md'), 'utf8')).toBe('operator edited former frame content\n');
+    expect(await readFile(join(f.targetRoot, 'operator-added.md'), 'utf8')).toBe('operator owned\n');
+  });
+
   test('refuses changed bytes at the same generation and never regresses the target', async () => {
     const f = await fixture();
     await install(installOptions(f));
@@ -768,6 +784,44 @@ const crashBoundaries = ['after-lock', 'after-journal', 'after-plan', 'after-sta
   'after-backup', 'after-move-link', 'after-place-link', 'after-place', 'before-state', 'after-state-write', 'after-state'] as const;
 
 describe.skipIf(process.platform === 'win32')('real process termination and recovery', () => {
+  test('explicit backup barrier preserves a newer writer and run-owned recovery evidence', async () => {
+    const f = await fixture();
+    expect((await install(installOptions(f))).status).toBe('installed');
+    const next = await f.restage({ 'kernel.md': 'upgrade from writer A\n', 'nested/reference.md': 'rendered reference v1\n' }, 2);
+    const script = `const { install } = await import(${JSON.stringify(installerUrl)});
+      console.log(JSON.stringify(await install(JSON.parse(await Bun.stdin.text()))));`;
+    const child = Bun.spawn([process.execPath, '-e', script], { stdin: Buffer.from(JSON.stringify(installOptions(f,
+      { manifest: next, expectedGeneration: 1, failpoints: { at: 'after-backup', mode: 'stop' } }))),
+      stdout: 'pipe', stderr: 'pipe' });
+    try {
+      const deadline = Date.now() + 5000;
+      let records: any[] = [];
+      while (Date.now() < deadline) {
+        try { records = (await readFile(join(f.targetRoot, CONTROL_JOURNAL_PATH), 'utf8')).trim().split('\n').map(line => JSON.parse(line)); }
+        catch { /* A has not reached the barrier. */ }
+        if (records.some(record => record.phase === 'backed-up' && record.path === 'kernel.md')) break;
+        await new Promise(resolve => setTimeout(resolve, 10));
+      }
+      expect(records.some(record => record.phase === 'backed-up' && record.path === 'kernel.md')).toBe(true);
+      const nonce = records[0]!.nonce as string;
+      expect(await readFile(join(f.targetRoot, `.aos/backup/${nonce}/kernel.md`), 'utf8')).toBe('rendered kernel v1\n');
+      // Writer B completes while A is stopped. A must neither overwrite it nor
+      // misidentify B's inode as its own staged output when resumed.
+      await writeFile(join(f.targetRoot, 'kernel.md'), 'newer writer B\n');
+      process.kill(child.pid, 'SIGCONT');
+      const [stdout, stderr, code] = await Promise.all([
+        new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited,
+      ]);
+      expect(code).toBe(0); expect(stderr).toBe('');
+      const report: InstallReport = JSON.parse(stdout);
+      expect(report.status).toBe('partial'); expect(report.recoveryRequired).toBe(true);
+      expect(await readFile(join(f.targetRoot, 'kernel.md'), 'utf8')).toBe('newer writer B\n');
+      expect(await readFile(join(f.targetRoot, `.aos/backup/${nonce}/kernel.md`), 'utf8')).toBe('rendered kernel v1\n');
+    } finally {
+      if (child.exitCode === null) { child.kill('SIGKILL'); await child.exited; }
+    }
+  });
+
   test.each([...crashBoundaries])('SIGKILL at %s during upgrade preserves a recoverable transaction', async at => {
     const f = await fixture();
     expect((await install(installOptions(f))).status).toBe('installed');

@@ -53,6 +53,7 @@
     "src/edges/mcp.ts",
     "src/edges/working-loop.ts",
     "src/effects/closeout.ts",
+    "src/effects/doctor.ts",
     "src/effects/drift.ts",
     "src/effects/install-testing.ts",
     "src/effects/install.ts",
@@ -93,6 +94,7 @@
     "tests/core-compose.test.ts",
     "tests/core-seeded.test.ts",
     "tests/core.test.ts",
+    "tests/doctor.test.ts",
     "tests/drift.test.ts",
     "tests/edges.test.ts",
     "tests/export-public.test.ts",
@@ -107,6 +109,7 @@
     "tests/manage.test.ts",
     "tests/phase3.test.ts",
     "tests/privacy.test.ts",
+    "tests/restore.test.ts",
     "tests/runtime.test.ts",
     "tests/verify.test.ts",
     "tsconfig.json"

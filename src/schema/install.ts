@@ -27,13 +27,47 @@ export const InstallEntrySchema = PlainObjectSchema.pipe(z.strictObject({
   digest: z.string().length(71).regex(/^sha256:[a-f0-9]{64}$/),
 }));
 
+const DigestSchema = z.string().length(71).regex(/^sha256:[a-f0-9]{64}$/);
+const JsonPathSchema = z.array(z.string().min(1).max(128).refine((part) =>
+  !/[\u0000-\u001f\u007f]/.test(part) && !['__proto__', 'prototype', 'constructor'].includes(part),
+)).min(1).max(16);
+
+/**
+ * Every newly rendered output declares one ownership class. Legacy version-1
+ * callers that omit the field remain readable as whole framework files.
+ *
+ * `managed-json-item` means AOS owns exactly one array item at `jsonPath`, not
+ * the surrounding document. `baseDigest` binds the complete operator document
+ * observed by the renderer (or null when it was absent), and `itemDigest`
+ * identifies the canonical JSON item to add/replace/remove.
+ */
+export const InstallOutputEntrySchema = PlainObjectSchema.pipe(z.strictObject({
+  path: z.string().refine(isInstallPath, 'Expected a normalized safe relative file path'),
+  digest: DigestSchema,
+  ownership: z.enum(['framework-file', 'managed-json-item']).optional(),
+  baseDigest: DigestSchema.nullable().optional(),
+  jsonPath: JsonPathSchema.optional(),
+  itemDigest: DigestSchema.optional(),
+})).superRefine((entry, ctx) => {
+  const managed = entry.ownership === 'managed-json-item';
+  for (const [field, value] of [['baseDigest', entry.baseDigest], ['jsonPath', entry.jsonPath],
+    ['itemDigest', entry.itemDigest]] as const) {
+    if (managed ? value === undefined : value !== undefined) {
+      ctx.addIssue({ code: 'custom', path: [field], message: managed
+        ? 'Managed JSON ownership requires complete merge evidence'
+        : 'Whole-file ownership cannot carry managed JSON evidence' });
+    }
+  }
+});
+
 export const InstallManifestSchema = PlainObjectSchema.pipe(z.strictObject({
   schemaVersion: z.literal(1),
   owner: z.string().refine((value) => value.trim().length > 0, 'Owner must be nonempty'),
   generation: z.int().positive(),
   harness: z.string().min(1),
+  sourceRevision: z.string().min(1).max(256).optional(),
   sources: z.array(InstallEntrySchema).min(1),
-  outputs: z.array(InstallEntrySchema).min(1),
+  outputs: z.array(InstallOutputEntrySchema).min(1),
 })).superRefine((manifest, ctx) => {
   for (const field of ['sources', 'outputs'] as const) {
     const seen = new Set<string>();
@@ -65,4 +99,5 @@ export const InstallManifestSchema = PlainObjectSchema.pipe(z.strictObject({
 });
 
 export type InstallEntry = z.infer<typeof InstallEntrySchema>;
+export type InstallOutputEntry = z.infer<typeof InstallOutputEntrySchema>;
 export type InstallManifest = z.infer<typeof InstallManifestSchema>;

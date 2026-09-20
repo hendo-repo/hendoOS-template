@@ -491,6 +491,25 @@ test('CLI refuses to overwrite an unowned output and preserves it byte for byte'
   expect(tempFiles(dir)).toEqual([]);
 });
 
+test('concurrent index publishers elect one winner and refuse the stale writer', async () => {
+  const dir = workspace();
+  const database = dbPath(dir), output = join(dir, 'memory.md');
+  await cli(dir, { action: 'import', database, batch: batch('owner_a', [memory('alpha'), memory('bravo')]) });
+
+  const request = { action: 'generate', database, output, options: options('owner_a', 'memory') };
+  const results = await Promise.all([cli(dir, request), cli(dir, request)]);
+  expect(results.map(result => result.code).sort()).toEqual([0, 1]);
+  expect(results.find(result => result.code === 1)?.json.reason).toBe('output-exists');
+
+  const winner = results.find(result => result.code === 0)!;
+  const artifact = winner.json.artifact as { digest: string; bytes: number };
+  const published = readFileSync(output, 'utf8');
+  expect(artifact.bytes).toBe(BYTES(published));
+  expect(published).toContain('## alpha');
+  expect(published).toContain('## bravo');
+  expect(tempFiles(dir)).toEqual([]);
+});
+
 test('CLI leaves no artifact when output limits or input validation fail', async () => {
   const dir = workspace();
   const database = dbPath(dir), bounded = join(dir, 'bounded.md'), invalid = join(dir, 'invalid.md');

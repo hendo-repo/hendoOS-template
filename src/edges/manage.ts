@@ -7,6 +7,7 @@ import { InstallManifestSchema, isInstallPath } from '../schema/install';
 import { renderHarness, type RenderOptions } from '../effects/render';
 import { install, uninstall, recoverInstall } from '../effects/install';
 import { checkDrift } from '../effects/drift';
+import { inspectCompatibility } from '../effects/doctor';
 import { loadContent, readBoundedFile, MAX_SOURCE_BYTES } from './content';
 
 const owner = z.string().refine(value => value.trim().length > 0);
@@ -20,8 +21,10 @@ const schemas = {
       .refine(mode => (mode & 0o400) !== 0)).optional() }),
   uninstall: z.strictObject({ ...target, expectedGeneration: generation.optional() }),
   recover: z.strictObject({ ...target, assumeDead: z.boolean().optional() }),
-  drift: z.strictObject(manifest),
-  doctor: z.strictObject({ contentRoot: AbsolutePathSchema, config: HookConfigSchema.optional() }),
+  drift: z.strictObject({ ...manifest, expectedSourceRevision: z.string().min(1).max(256).optional(),
+    targetName: z.string().min(1).max(128).optional() }),
+  doctor: z.strictObject({ contentRoot: AbsolutePathSchema, config: HookConfigSchema.optional(),
+    targetRoot: AbsolutePathSchema.optional() }),
 };
 const commands = ['render', 'install', 'uninstall', 'recover', 'drift', 'doctor'];
 const help = {
@@ -34,8 +37,8 @@ const help = {
     install: ['sourceRoot', 'stageRoot', 'targetRoot', 'owner', 'manifest', 'modes?', 'expectedGeneration?'],
     uninstall: ['targetRoot', 'owner', 'expectedGeneration?'],
     recover: ['targetRoot', 'owner', 'assumeDead?'],
-    drift: ['sourceRoot', 'targetRoot', 'owner', 'manifest', 'expectedGeneration?'],
-    doctor: ['contentRoot', 'config?'],
+    drift: ['sourceRoot', 'targetRoot', 'owner', 'manifest', 'expectedGeneration?', 'expectedSourceRevision?', 'targetName?'],
+    doctor: ['contentRoot', 'config?', 'targetRoot?'],
   },
   limits: ['Explicit absolute paths; no home discovery.', 'Render stages only; inspect its manifest before a separate install.',
     'No test failpoints or force option. Recovery ignores PID diagnostics only with explicit assumeDead: true.',
@@ -120,10 +123,11 @@ export async function main(args: string[]): Promise<number> {
         if (config && (config.contentGeneration !== content.generation || config.contentRoot !== options.contentRoot ||
             (config.ownerPolicy && (config.ownerPolicy.revision !== config.configRevision ||
              config.ownerPolicy.checkerRevision !== config.checkerRevision)))) throw new Error('configuration mismatch');
-        result = { status: 'complete', scope: 'read-only runtime/content/config diagnostics',
+        const compatibility = options.targetRoot ? await inspectCompatibility(options.targetRoot) : 'not-requested';
+        result = { status: 'complete', scope: 'read-only runtime/content/config/compatibility diagnostics',
           runtime: { name: 'Bun', version: Bun.version, platform: process.platform, arch: process.arch },
           content: { generation: content.generation, documents: content.documents.length, digest: content.digest },
-          config: config ? 'validated' : 'not-requested',
+          config: config ? 'validated' : 'not-requested', compatibility,
           unchecked: ['live harness', 'operational state', 'target ownership', 'runtime executable availability', 'system health'],
           provisional: true, enforcement: false };
         complete = true; break;

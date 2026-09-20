@@ -13,8 +13,9 @@ interface InstallManifest {
   owner: string;                 // nonblank
   generation: number;            // positive safe integer
   harness: string;               // generic nonempty name
+  sourceRevision?: string;       // bounded source identity
   sources: { path: string; digest: string }[];
-  outputs: { path: string; digest: string }[];
+  outputs: { path: string; digest: string; ownership?: 'framework-file' | 'managed-json-item' }[];
 }
 ```
 
@@ -35,6 +36,8 @@ interface CheckDriftOptions {
   manifest: unknown;
   owner: string;
   expectedGeneration?: number;
+  expectedSourceRevision?: string;
+  targetName?: string;
 }
 checkDrift(options: CheckDriftOptions): Promise<DriftReport>;
 checkDriftTargets(targets: readonly CheckDriftOptions[]): Promise<DriftAggregateReport>;
@@ -44,14 +47,23 @@ Pass an independent build manifest. Detection never loads a manifest from the
 target, changes its hashes, or repairs files. A caller that supplies hashes
 regenerated from altered target bytes has discarded its independent evidence;
 this API cannot reconstruct that evidence. Ownership is an exact comparison,
-not authentication or a signature. When supplied, `expectedGeneration` must
-match exactly; mismatches in either direction produce `stale`.
+not authentication or a signature. When supplied, `expectedGeneration` and
+`expectedSourceRevision` must match exactly; mismatches produce `stale` even
+when every source and output byte still agrees.
 
-`DriftReport` is JSON-safe: `status`, `checked`, `skipped`, `coverage`, `issues`.
+`DriftReport` is JSON-safe: `status`, named `target`, `checked`, `skipped`,
+`coverage`, `freshness`, `consistency`, `roots`, and `issues`.
 Coverage contains `sources` and `outputs`, each with `expected`, `checked`, and
 `skipped` counts. A conclusive missing file counts as checked; blocked reads
 count as skipped. Invalid input has zero coverage because no inventory is
 trusted. Root or ownership failures skip the entire valid inventory.
+
+`freshness` covers source bytes and source-revision identity. `consistency`
+covers installed output bytes. A manifest and target can therefore be mutually
+consistent while the source is stale. `roots` distinguishes configured,
+configured-but-missing, and unreadable source/target roots without echoing
+private paths. `targetName` supplies the report label; the harness name is the
+default.
 
 | Result | Meaning |
 | --- | --- |
@@ -105,10 +117,11 @@ update filesystem access times; no application writes occur.
 `tests/drift.test.ts` uses unique temporary fixtures, positive and negative
 controls, and before/after byte and metadata snapshots (excluding access times).
 It checks both inventories, malformed inputs, missing/modified/stale files,
-ownership, generation skew, symlinks, overlap, partial aggregation, and byte
-hashing. Permission-denial proof depends on a non-root test process.
+ownership, generation/source-revision skew, named missing roots, symlinks,
+overlap, partial aggregation, and byte hashing. Permission-denial proof depends
+on a non-root test process.
 
 The legacy unset-home fresh-install behavior can report green. AOS requires an
 explicit target and returns indeterminate for an unset or absent root. This is a
 documented compatibility difference; these tests do not claim an actual legacy
-differential run. There is no CLI or installer in this slice.
+differential run. The management CLI exposes the same strict read-only report.

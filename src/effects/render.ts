@@ -1,5 +1,5 @@
 /** Stage an isolated, self-contained delivery. The installer alone writes target artifacts. */
-import { lstat, mkdir, readdir, realpath, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, readdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { access } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -7,7 +7,7 @@ import { z } from 'zod';
 import { AbsolutePathSchema, HARNESS_PROTOCOL, REGISTRATION_PATH, HookConfigSchema,
   registration, hookReply } from '../protocols/harness';
 import { JsonValueSchema } from '../protocols/validation';
-import { InstallManifestSchema, type InstallManifest } from '../schema/install';
+import { InstallManifestSchema, type InstallManifest, type InstallOutputEntry } from '../schema/install';
 import { readFileDigest, validateRoots } from './paths';
 import { loadContent, readBoundedFile } from '../edges/content';
 
@@ -24,10 +24,52 @@ export interface RenderedHarness {
   bunPath: string; shimPath: string; configPath: string;
 }
 function quote(value: string): string { return "'" + value.replaceAll("'", "'\\''") + "'"; }
-async function absent(path: string): Promise<void> {
-  try { await lstat(path); }
-  catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return; throw error; }
-  throw new Error('existing registration or stage output refused');
+const MAX_SETTINGS_BYTES = 256 * 1024;
+const managedPath = ['hooks', 'PreToolUse'] as const;
+function sha(bytes: string | Uint8Array): string {
+  return `sha256:${new Bun.CryptoHasher('sha256').update(bytes).digest('hex')}`;
+}
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === 'object' && !Array.isArray(value) &&
+    Object.getPrototypeOf(value) === Object.prototype;
+}
+function commandOf(value: unknown): string | undefined {
+  if (!isRecord(value) || !Array.isArray(value.hooks) || value.hooks.length !== 1) return undefined;
+  const hook = value.hooks[0];
+  return isRecord(hook) && typeof hook.command === 'string' ? hook.command : undefined;
+}
+async function mergeRegistration(path: string, shimPath: string): Promise<{
+  bytes: string; baseDigest: string | null; itemDigest: string;
+}> {
+  let base: Record<string, unknown> = {};
+  let baseDigest: string | null = null;
+  try {
+    const info = await lstat(path);
+    if (!info.isFile() || info.isSymbolicLink() || info.nlink !== 1 || info.size > MAX_SETTINGS_BYTES) {
+      throw new Error('settings must be a bounded unaliased regular file');
+    }
+    const bytes = await readFile(path);
+    baseDigest = sha(bytes);
+    const parsed: unknown = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
+    if (!isRecord(parsed)) throw new Error('settings root must be an object');
+    base = parsed;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw new Error('existing settings cannot be safely merged');
+  }
+  const hooksValue = base.hooks;
+  if (hooksValue !== undefined && !isRecord(hooksValue)) throw new Error('existing settings hooks must be an object');
+  const hooks = hooksValue === undefined ? {} : { ...hooksValue };
+  const listValue = hooks.PreToolUse;
+  if (listValue !== undefined && !Array.isArray(listValue)) throw new Error('existing PreToolUse hooks must be an array');
+  const list = listValue === undefined ? [] : [...listValue];
+  const matching = list.map((value, index) => ({ value, index })).filter(({ value }) => commandOf(value) === shimPath);
+  if (matching.length > 1) throw new Error('duplicate managed registration conflict');
+  if (matching.length === 1) list.splice(matching[0]!.index, 1);
+  const item = registration(shimPath).hooks.PreToolUse[0]!;
+  list.push(item);
+  hooks.PreToolUse = list;
+  const merged = { ...base, hooks };
+  return { bytes: JSON.stringify(merged, null, 2) + '\n', baseDigest, itemDigest: sha(JSON.stringify(item)) };
 }
 async function digest(root: string, path: string): Promise<string> {
   const result = await readFileDigest(root, path);
@@ -54,8 +96,6 @@ export async function renderHarness(input: RenderOptions): Promise<RenderedHarne
   for (let a = 0; a < roots.length; a++) for (let b = a + 1; b < roots.length; b++) {
     if (!(await validateRoots(roots[a]!, roots[b]!)).ok) throw new Error('roots must be existing, disjoint, and unaliased');
   }
-  // This first implementation deliberately supports fresh registration only.
-  await absent(join(o.targetRoot, REGISTRATION_PATH));
   if ((await readdir(o.stageRoot)).length) throw new Error('stage must be empty');
   for (const suffix of ['', '-wal', '-shm', '-journal']) {
     try { const s = await lstat(o.statePath + suffix); if (!s.isFile() || s.isSymbolicLink() || s.nlink !== 1) throw new Error('state alias'); }
@@ -90,7 +130,7 @@ export async function renderHarness(input: RenderOptions): Promise<RenderedHarne
   const launchPath = join(o.targetRoot, 'aos-hook/launch.js');
   const config = HookConfigSchema.parse({ ...o.config, ownerId: o.owner,
     statePath: o.statePath, contentRoot: join(o.targetRoot, 'aos-hook/content') });
-  const settings = registration(shimPath);
+  const settings = await mergeRegistration(join(o.targetRoot, REGISTRATION_PATH), shimPath);
   const sourcePaths = [...await inventory(o.sourceRoot, 'src'),
     ...await inventory(o.sourceRoot, 'content'), ...await inventory(o.sourceRoot, 'node_modules/zod'),
     'package.json', 'bun.lock', 'LICENSE', 'NOTICE'];
@@ -104,7 +144,7 @@ export async function renderHarness(input: RenderOptions): Promise<RenderedHarne
   // Catch module-load failure before the edge can establish its own boundary.
   const launch = `try {\n  const { main } = await import('./hook.js');\n  process.exitCode = await main(Bun.argv.slice(2));\n} catch {\n  await Bun.stdout.write(${JSON.stringify(failure.stdout)});\n  await Bun.stderr.write('AOS shadow module unavailable; no decision emitted.\\n');\n  process.exitCode = ${failure.exitCode};\n}\n`;
   const files = new Map<string, string>([
-    [REGISTRATION_PATH, JSON.stringify(settings, null, 2) + '\n'],
+    [REGISTRATION_PATH, settings.bytes],
     ['aos-hook/run', shim], ['aos-hook/hook.js', await build.outputs[0]!.text()],
     ['aos-hook/launch.js', launch],
     ['aos-hook/config.json', JSON.stringify(config, null, 2) + '\n'],
@@ -126,9 +166,12 @@ export async function renderHarness(input: RenderOptions): Promise<RenderedHarne
   }
   // Validate actual staged content before handing the manifest to the installer.
   await loadContent(join(o.stageRoot, 'aos-hook/content'));
-  const outputs = await Promise.all([...files.keys()].map(async path => ({ path, digest: await digest(o.stageRoot, path) })));
+  const outputs: InstallOutputEntry[] = await Promise.all([...files.keys()].map(async path => path === REGISTRATION_PATH
+    ? { path, digest: await digest(o.stageRoot, path), ownership: 'managed-json-item' as const,
+      baseDigest: settings.baseDigest, jsonPath: [...managedPath], itemDigest: settings.itemDigest }
+    : { path, digest: await digest(o.stageRoot, path), ownership: 'framework-file' as const }));
   const manifest = InstallManifestSchema.parse({ schemaVersion: 1, owner: o.owner, generation: o.generation,
-    harness: HARNESS_PROTOCOL, sources, outputs });
+    harness: HARNESS_PROTOCOL, sourceRevision: o.config.sourceRevision, sources, outputs });
   return { sourceRoot: o.sourceRoot, stageRoot: o.stageRoot, targetRoot: o.targetRoot, owner: o.owner,
     manifest, modes, bunPath, shimPath, configPath };
 }

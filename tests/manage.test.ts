@@ -122,6 +122,8 @@ describe.skipIf(process.platform === 'win32')('management CLI contract', () => {
     // The staged shim is executable; every other staged artifact stays private.
     expect(rendered.modes['aos-hook/run']).toBe(0o755);
     expect(rendered.modes['settings.json']).toBe(0o600);
+    const owned = (rendered.manifest as { outputs: { path: string; ownership?: string }[] }).outputs;
+    expect(owned.every(entry => entry.ownership === (entry.path === 'settings.json' ? 'managed-json-item' : 'framework-file'))).toBe(true);
   });
 
   test('install applies the inspected stage and reports installed with exit 0', async () => {
@@ -212,7 +214,9 @@ describe.skipIf(process.platform === 'win32')('management CLI contract', () => {
   });
 
   test('doctor is read-only and explicitly enumerates what it does not check', async () => {
-    const result = await runCli(['doctor'], JSON.stringify({ contentRoot: join(sourceRoot, 'content') }));
+    const compatibilityRoot = join(base, 'doctor-target'); await mkdir(compatibilityRoot);
+    await writeFile(join(compatibilityRoot, '.verified'), 'true\n');
+    const result = await runCli(['doctor'], JSON.stringify({ contentRoot: join(sourceRoot, 'content'), targetRoot: compatibilityRoot }));
     expect(result.code).toBe(0);
     const report = body(result);
     expect(report.status).toBe('complete');
@@ -220,6 +224,7 @@ describe.skipIf(process.platform === 'win32')('management CLI contract', () => {
     expect(report.provisional).toBe(true);
     expect(report.unchecked as string[]).toContain('live harness');
     expect((report.runtime as { name: string }).name).toBe('Bun');
+    expect(report.compatibility).toMatchObject({ status: 'foreign-markers', authorization: 'none', collision: false });
   });
 });
 

@@ -30,7 +30,7 @@ interface RecoveryOptions {
 }
 ```
 
-Options reject unknown fields, accessors, inherited objects, wrong types and invalid generations. Manifest data must be plain JSON data. JavaScript Proxies are outside this contract because reflection can execute their traps. The shared strict `InstallManifestSchema` is unchanged: version 1, nonempty owner and harness, positive generation, and nonempty source/output lists with safe relative paths and SHA-256 digests.
+Options reject unknown fields, accessors, inherited objects, wrong types and invalid generations. Manifest data must be plain JSON data. JavaScript Proxies are outside this contract because reflection can execute their traps. The shared strict `InstallManifestSchema` remains wire version 1: nonempty owner and harness, positive generation, optional bounded source revision, and nonempty source/output lists with safe relative paths and SHA-256 digests. New renderer outputs declare exactly one ownership class: `framework-file` or `managed-json-item`. Legacy entries with no class remain compatible whole-file entries. Managed entries also bind the exact base digest, JSON array path, and canonical item digest; incomplete or cross-class metadata is rejected.
 
 `expectedGeneration` means the currently installed generation. An expectation on an empty target refuses. Generation regression refuses. Changed content, requested permission changes, new ownership and removal of unchanged owned outputs require a newer generation. Missing owned files can be recreated. Unowned collisions and modified owned outputs refuse. Modified stale entries remain recorded with their old digest and mode and produce `partial`.
 
@@ -48,7 +48,7 @@ Reserved controls are exported as:
 
 All `.aos` paths, including case aliases, are reserved. A completed install retains the coordination file and ownership state. A completed uninstall retains the coordination file. Valid no-op recovery/uninstall calls can also initialize it. Unknown control files remain untouched.
 
-Ownership state stays version 1 with `owner`, `generation`, `harness`, and `entries: {path, digest, mode?}[]`. Optional `directories` records directories created for artifacts. Old state without directory provenance remains readable; its empty directories are preserved.
+Ownership state stays version 1 with `owner`, `generation`, `harness`, and `entries: {path, digest, mode?}[]`. Optional `directories` records directories created for artifacts. Old state without directory provenance remains readable; its empty directories are preserved. New state may also record `sourceRevision` and explicit entry ownership. A managed JSON entry owns one exact array item, never the surrounding operator document. Install verifies the observed pre-image and staged item under the writer lock. Upgrade accepts unrelated operator edits only while the old managed item is exact. Uninstall transactionally removes that item and preserves the remainder; an edited or ambiguous item remains visible as partial residue.
 
 ## Explicit permissions
 
@@ -86,7 +86,14 @@ The commit boundary is the flushed `committed` record after new state is flushed
 
 Rollback removes a placed file only when its digest, mode and inode agree with staging evidence. It restores only a digest/mode-verified backup into an absent name, or accepts a destination already linked to that backup. An unrelated replacement with identical bytes is preserved. Changed files, corrupt backups, unknown legacy modes, changed state, symlinks and missing evidence produce `partial` or `refused`, retaining recovery evidence.
 
-Cleanup never recursively removes trees. It removes exact planned scratch files after digest/mode checks and uses `rmdir` on recorded directories. Unknown scratch files block cleanup and remain. Uninstall removes only unchanged owned artifacts, state and empty directories with recorded provenance. User files, user directories, permission edits and content edits remain. Modified entries retain ownership so a later uninstall can reassess them.
+Cleanup never recursively removes trees. It removes exact planned scratch files after digest/mode checks and uses `rmdir` on recorded directories. Unknown scratch files block cleanup and remain. Uninstall removes only unchanged whole-file artifacts, exact managed JSON items, state and empty directories with recorded provenance. User files, user directories, unrelated JSON keys/hooks, permission edits and content edits remain. Modified entries retain ownership so a later uninstall can reassess them.
+
+Ordinary uninstall deliberately retains `.aos/coordination.sqlite`, the `.aos`
+directory containing it, and the separately configured runtime SQLite file. It
+does not offer a zero-residue or full-state-removal mode. Removing those files
+requires an independently quiesced, explicitly scoped operator procedure; the
+library never unlinks the stable coordination inode while another caller could
+hold it.
 
 ## Reports and executable proof
 
@@ -100,7 +107,7 @@ Reports contain JSON-safe status, counts, mutation counters, relative residue pa
 
 Counters describe checked/planned artifacts and applied actions, not syscalls or a durable audit log. `recoveryRequired: false` on a partial uninstall means the transaction finalized but modified owned files remain.
 
-Production option schemas reject `failpoints`. The separate `src/effects/install-testing.ts` module exposes test-only wrappers whose `failpoints: { at, mode }` supports `abort`, `crash` and immediate `exit` (code 70). Production edges never import that module. A configured point fires once per operation. Recovery interruption uses the same option. Boundaries are:
+Production option schemas reject `failpoints`. The separate `src/effects/install-testing.ts` module exposes test-only wrappers whose `failpoints: { at, mode }` supports `abort`, `crash`, immediate `exit` (code 70), and POSIX `stop` for an explicit externally resumed race barrier. Production edges never import that module. A configured point fires once per operation. Recovery interruption uses the same option. Boundaries are:
 
 ```text
 after-lock             after-journal          after-plan
@@ -114,7 +121,7 @@ after-cleanup-file      after-cleanup-journal
 
 Recovery-specific cleanup points run only during recovery. Placement points do not occur in uninstall. `after-backup` also fires for additions; `after-place` also fires for removals. `after-place-link` means the exclusive destination link exists while scratch evidence remains.
 
-Run `bun test tests/install.test.ts`, then `bun run verify`. Tests include actual subprocess SIGKILL, competing installs and recoveries, active recovery with a stale original PID, repeated interrupted recovery, forged/torn evidence, exact executable permissions, direct shim execution, and content/mode preservation.
+Run `bun test tests/install.test.ts tests/hooks.test.ts tests/restore.test.ts`, then `bun run verify`. Tests include actual subprocess SIGKILL, an explicit stop/resume barrier after backup creation with a newer writer, competing installs and recoveries, active recovery with a stale original PID, repeated interrupted recovery, forged/torn evidence, exact executable permissions, managed shared-settings recovery, direct shim execution, content upgrades, and disposable restore/degraded operation.
 
 Safety assertion changes are deliberate: empty targets now retain one permanent coordination inode; snapshots exclude only that control and empty control-directory metadata, with separate exact-name/inode/mode/size and sidecar checks. Zero-write preflight tests still explicitly require an empty target. The placement label changed from rename to link. The active-lock test now uses a valid manifest so preflight rejection does not hide the exclusion check. No previous test was removed. Legacy permission preservation is additional coverage, not a relaxed deletion assertion.
 
