@@ -58,15 +58,15 @@ const documents = () => buildContentCorpus([
   source('depth', 'reference', 'pre-edit', '# Reference detail'),
 ]).value.documents;
 
-test('kernel prefix stays fixed across events and requested references stay dynamic', () => {
-  const index = { documents: documents(), mustFireIds: ['kernel', 'depth'], mustFireKernelIds: ['kernel'], mustFireStaticIds: ['close', 'kernel'] };
+test('kernel prefix follows activation while requested references stay dynamic', () => {
+  const index = { documents: documents(), mustFireIds: ['kernel', 'depth'], mustFireKernelIds: ['kernel'], mustFireStaticIds: ['kernel'] };
   const first = compose(event, {}, index);
   const requested = compose(event, { referenceIds: ['depth'] }, index);
-  const close = compose({ ...event, id: 'session-end' }, {}, { ...index, mustFireIds: ['close'], mustFireKernelIds: ['close'] });
+  const close = compose({ ...event, id: 'session-end' }, {}, { ...index, mustFireIds: ['close'], mustFireKernelIds: ['close'], mustFireStaticIds: ['close'] });
   expect(first.ok).toBe(true);
   expect(requested.ok).toBe(true);
   expect(close.ok).toBe(true);
-  expect(first.value.payload.staticPrefix).toBe(close.value.payload.staticPrefix);
+  expect(first.value.payload.staticPrefix).not.toBe(close.value.payload.staticPrefix);
   expect(first.value.payload.staticHash).toBe(requested.value.payload.staticHash);
   expect(first.value.payload.text).not.toContain('# Reference detail');
   expect(requested.value.payload.dynamicSuffix).toContain('# Reference detail');
@@ -75,7 +75,7 @@ test('kernel prefix stays fixed across events and requested references stay dyna
 
 test('unchanged expected kernel set catches a tier demotion', () => {
   const docs = documents().map(d => d.id === 'kernel' ? { ...d, tier: 'reference' } : d);
-  const result = compose(event, {}, { documents: docs, mustFireIds: ['kernel', 'depth'], mustFireKernelIds: ['kernel'], mustFireStaticIds: ['close'] });
+  const result = compose(event, {}, { documents: docs, mustFireIds: ['kernel', 'depth'], mustFireKernelIds: ['kernel'], mustFireStaticIds: ['kernel'] });
   expect(result.errors.some(e => e.code === 'membership-mismatch')).toBe(true);
 });
 
@@ -119,7 +119,7 @@ test('Markdown inline, image and definition references check paths and anchors',
 });
 
 test('membership validation catches actual tier demotion and unknown fields', () => {
-  const manifest = { version: 1, owner: 'core', generation: 1, scenarios: [{ id: 'edit', harness: 'default', event: 'pre-edit', expectedIds: ['kernel', 'depth'], expectedKernelIds: ['kernel'], expectedStaticIds: ['close', 'kernel'] }] };
+  const manifest = { version: 1, owner: 'core', generation: 1, scenarios: [{ id: 'edit', harness: 'default', event: 'pre-edit', expectedIds: ['kernel', 'depth'], expectedKernelIds: ['kernel'], expectedStaticIds: ['kernel'] }] };
   expect(evaluateMembership(manifest, documents()).ok).toBe(true);
   const demoted = documents().map(d => d.id === 'kernel' ? { ...d, tier: 'reference' } : d);
   expect(evaluateMembership(manifest, demoted).ok).toBe(false);
@@ -128,13 +128,13 @@ test('membership validation catches actual tier demotion and unknown fields', ()
 
 test('wildcard harness content stays portable', () => {
   const docs = documents().map(d => ({ ...d, targetHarnesses: ['*'], activationConditions: d.activationConditions.map(c => ({ ...c, harnesses: ['*'] })) }));
-  expect(compose({ ...event, harness: 'custom' }, {}, { documents: docs, mustFireIds: ['kernel', 'depth'], mustFireKernelIds: ['kernel'], mustFireStaticIds: ['close', 'kernel'] }).ok).toBe(true);
+  expect(compose({ ...event, harness: 'custom' }, {}, { documents: docs, mustFireIds: ['kernel', 'depth'], mustFireKernelIds: ['kernel'], mustFireStaticIds: ['kernel'] }).ok).toBe(true);
 });
 
 test('payload output schema checks strict provenance and digest integrity', async () => {
   const { VersionedPayloadSchema } = await import('../src/protocols/payload');
   const { recomposeWithStaticBlocks } = await import('../src/compose');
-  const result = compose(event, { referenceIds: ['depth'] }, { documents: documents(), mustFireIds: ['kernel', 'depth'], mustFireKernelIds: ['kernel'], mustFireStaticIds: ['close', 'kernel'] });
+  const result = compose(event, { referenceIds: ['depth'] }, { documents: documents(), mustFireIds: ['kernel', 'depth'], mustFireKernelIds: ['kernel'], mustFireStaticIds: ['kernel'] });
   expect(VersionedPayloadSchema.safeParse(result.value.payload).success).toBe(true);
   const rebuilt = recomposeWithStaticBlocks(result.value, [{ id: 'rules', text: 'Fixed\n' }]);
   expect(rebuilt.ok).toBe(true);

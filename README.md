@@ -28,7 +28,7 @@ anything.
 | `src/edges/vault.ts` | Read-only vault inventory and exact manifest comparison | Implemented; explicit roots only |
 | `src/edges/hook.ts` | Native `PreToolUse` adapter (`Edit`/`Write`, POSIX) | Implemented as a **shadow test adapter**: it reports `would-allow`/`would-deny`/`indeterminate` and emits no native permission decision |
 | `src/state/store.ts` | SQLite receipt/state store | Implemented |
-| `content/` | Starter corpus and membership manifest | Implemented (generation 2) |
+| `content/` | Starter corpus and membership manifest | Implemented (generation 4) |
 | `scripts/` | Verification, public scan/export, benchmark, and opt-in live skill proof | Implemented |
 | `public-export.manifest.json`, `scripts/export-public.ts` | Revision-bound, exact-allowlist public template export | Implemented; publication still requires reviewed GitHub changes |
 | `templates/vault/` | Empty public durable-knowledge scaffold | Implemented |

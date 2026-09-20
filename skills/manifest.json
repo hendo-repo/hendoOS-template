@@ -4,7 +4,7 @@
   "skills": [
     {
       "name": "session-agent",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "source": "hendoos-canonical",
       "path": "skills/session-agent",
       "files": ["SKILL.md"],
@@ -32,7 +32,7 @@
     },
     {
       "name": "self-audit",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "source": "hendoos-canonical",
       "path": "skills/self-audit",
       "files": ["SKILL.md"],

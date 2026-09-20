@@ -1,6 +1,6 @@
 ---
 id: verification-posture
-version: 2
+version: 3
 tier: kernel
 target_harnesses: [default]
 byte_budget: 3072
@@ -59,7 +59,11 @@ and does not apply to code review, security review or spec-conformance review.
 
 ## Independent review
 
-Use independent review when risk or ambiguity warrants it. Treat external model output
-as advice, not proof. The primary agent remains responsible for verification.
+Use independent review when risk or ambiguity warrants it. For model review, choose a
+different model family from the primary. The active harness selects the concrete model
+and transport; this framework does not prescribe providers or a permanent roster.
+Treat external model output as advice, not proof. The primary remains responsible for
+verification. If optional review is unavailable, continue within the granted scope and
+name the residual risk; stop only when review is essential to the acceptance claim.
 
 For concrete steps, request [verification recipes](../reference/verification-recipes.md).

@@ -1,10 +1,10 @@
 ---
 id: routing-notes
-version: 2
+version: 3
 tier: kernel
 target_harnesses: [default]
 byte_budget: 3072
-summary: Route a task to the smallest capable chain before executing it.
+summary: Use an execution route only when it materially improves the task.
 activation_conditions:
   - harnesses: [default]
     event: session-start
@@ -17,8 +17,9 @@ activation_conditions:
 
 # Routing Notes
 
-Route to the smallest capable chain. Routing exists to pick a path, not to look
-thorough.
+Routing is optional coordination, not a ceremony. Keep ordinary questions and
+routine changes inline. Choose the smallest capable path only when a split, specialist,
+or independent review would materially improve the result.
 
 ## Roles
 
@@ -28,14 +29,16 @@ thorough.
 
 ## Pick the path
 
-- Questions and review-only work stay inline; there is nothing to execute.
-- A change confined to one file stays inline; a multi-file build splits into
-  independent lanes only when delegation is authorized and the split helps. Give each
-  lane a success signal, likely failure and countermove, stop condition, and list of
-  unverified claims. The integrator inspects each diff and reruns its relevant proof.
-- A change touching high-risk surfaces — credentials, permissions, migrations,
-  billing, anything published — takes the lane route plus an independent critic pass
-  over the diff, whatever its size.
+- Questions and review-only work stay inline unless a specialist is essential.
+- File count alone does not require delegation. Split work only when delegation is
+  authorized, the lanes are genuinely independent, and coordination costs less than
+  it saves. The primary owns integration and inspects accepted artifacts.
+- High-risk or shared-framework changes receive independent review when feasible.
+  Use a reviewer from a different model family from the primary; the active harness
+  chooses the model and transport. Do not encode a fixed provider or model roster.
+- An unavailable optional reviewer does not mean no useful work can proceed. Continue
+  within authority and report the unreviewed claim. Stop only when that review is an
+  essential acceptance condition or the risk cannot otherwise be bounded.
 
 ## Never route to look thorough
 
@@ -45,10 +48,8 @@ thorough.
 - Do not treat another model's answer as completion evidence.
 - Do not rewrite a global rule on one weak signal.
 
-## Declare the route before acting
-
-State, in one line each: the task surface, the primary path, any recall the task
-matches, the check that will prove it, and whether the work runs inline or in lanes.
-A route declared after the work is a description, not a decision.
+Do not require a routing declaration for ordinary work. When lanes are used, record
+their ownership, acceptance signal, and the artifact the primary accepted; do not
+generate a task wave merely to demonstrate process.
 
 Use the [verification standard](verification-posture.md) to choose the completion check.

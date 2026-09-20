@@ -30,8 +30,18 @@ export const RecallRequestSchema = z.strictObject({
     state: z.string().min(1).max(64), observedAt: z.string().datetime() }).optional(),
 });
 export type RecallRequest = z.infer<typeof RecallRequestSchema>;
-export const RecallFeedbackSchema = z.strictObject({ noteId: id,
-  result: z.enum(['inaccessible', 'not-found', 'loaded', 'not-loaded', 'misunderstood', 'loaded-but-ignored', 'stale-or-incorrect', 'disproportionate', 'applied']),
-  noteDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/).optional(), evidence: z.array(item).max(20).optional(),
-  disposition: z.enum(['none', 'retain', 'revise', 'supersede', 'retire']).default('none'), detail: z.string().min(1).max(1000) });
+export const RecallFeedbackSchema = z.strictObject({
+  taskId: id,
+  noteId: id.optional(),
+  result: z.enum(['inaccessible', 'not-found', 'loaded', 'not-loaded', 'misunderstood', 'loaded-but-ignored',
+    'stale-or-incorrect', 'disproportionate', 'applied', 'no-action']),
+  noteDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/).optional(),
+  evidence: z.array(item).min(1).max(20),
+  disposition: z.enum(['none', 'retain', 'revise', 'supersede', 'retire']).default('none'),
+  detail: z.string().min(1).max(1000),
+}).superRefine((value, ctx) => {
+  const unresolved = value.result === 'inaccessible' || value.result === 'not-found';
+  if (!unresolved && !value.noteId) ctx.addIssue({ code: 'custom', path: ['noteId'], message: 'note-id-required' });
+  if (!unresolved && !value.noteDigest) ctx.addIssue({ code: 'custom', path: ['noteDigest'], message: 'note-digest-required' });
+});
 export type RecallFeedback = z.infer<typeof RecallFeedbackSchema>;

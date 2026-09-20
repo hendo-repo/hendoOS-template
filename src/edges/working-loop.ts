@@ -11,7 +11,7 @@ const request = z.discriminatedUnion('action', [
   z.strictObject({ action: z.literal('knowledge-audit'), root: absolute }),
   z.strictObject({ action: z.literal('recall'), root: absolute, request: z.unknown() }),
   z.strictObject({ action: z.literal('read-note'), root: absolute, id: z.string(), digest: z.string() }),
-  z.strictObject({ action: z.literal('recall-feedback'), request: z.unknown() }),
+  z.strictObject({ action: z.literal('recall-feedback'), state: absolute, request: z.unknown() }),
   z.strictObject({ action: z.literal('indexes-publish'), root: absolute, output: absolute, pageSize: z.number().int().optional() }),
   z.strictObject({ action: z.literal('closeout'), root: absolute, state: absolute, request: z.unknown() }),
 ]);
@@ -38,7 +38,7 @@ export async function executeWorkingLoop(input: unknown): Promise<object> {
   if (parsed.action === 'knowledge-audit') return auditKnowledge(parsed.root);
   if (parsed.action === 'recall') return recallKnowledge(await auditKnowledge(parsed.root), parsed.request);
   if (parsed.action === 'read-note') return readKnowledgeNote(await auditKnowledge(parsed.root), parsed.id, parsed.digest);
-  if (parsed.action === 'recall-feedback') return recordRecallFeedback(parsed.request as never);
+  if (parsed.action === 'recall-feedback') return recordRecallFeedback(parsed.state, parsed.request as never);
   if (parsed.action === 'indexes-publish') {
     const generated = generateKnowledgeIndexes(await auditKnowledge(parsed.root), parsed.pageSize);
     return publishKnowledgeIndexes(parsed.output, generated);

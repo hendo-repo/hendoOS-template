@@ -47,7 +47,7 @@ revision or supply an `authority` override.
 
 - `mustFireIds`: exact set of all activated IDs, including references.
 - `mustFireKernelIds`: exact set of activated kernel IDs.
-- `mustFireStaticIds`: exact set of kernel IDs present in the invariant static prefix, including dormant kernels targeted to the harness.
+- `mustFireStaticIds`: exact set of activated kernel IDs present in the static prefix.
 
 Both expectations are required for successful composition. Do not derive them
 from the same mutable documents being checked. Removing a kernel, changing its
@@ -88,13 +88,14 @@ if (!kickoff.ok || !requested.ok) throw new Error('Invalid composition');
 console.assert(kickoff.value.payload.staticHash === requested.value.payload.staticHash);
 ```
 
-The static prefix contains ordered framework blocks and all kernel documents
-that target the harness, ordered by ID. Its bytes depend only on the harness and
-corpus generation, not the event, state, or reference request. Activation indicates
-which rules apply now; content must state its own scope. The suffix holds requested
-reference prose plus deterministic event/state metadata. An activated reference is
-not an automatic prose request. Requests must resolve to references declared by a
-kernel for the same harness.
+The static prefix contains ordered framework blocks and only the kernel documents
+activated for the current scenario, ordered by ID. Dormant procedures are omitted,
+so an ordinary question or routine change does not inherit unrelated routing or
+closeout ceremony. For the same activated-kernel set its bytes are stable regardless
+of reference requests. The suffix holds requested reference prose plus deterministic
+event/state metadata. An activated reference is not an automatic prose request.
+Requests must resolve to references declared by an activated kernel for the same
+harness.
 
 Reference checks cover `References: id, id` declarations and starter Markdown's
 inline links, images, reference definitions, and local heading fragments. Relative

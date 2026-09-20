@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { digestOfString } from '../src/protocols/json';
@@ -115,9 +115,63 @@ describe('durable knowledge, recall, and generated indexes', () => {
     const loaded = readKnowledgeNote(audit, 'cross-harness', recalled.candidates[0].digest) as any;
     expect(loaded.status).toBe('loaded'); expect(loaded.metadata.learned_by).toBe('codex');
     expect(loaded.body).toContain('run the complete project verifier');
-    for (const result of ['loaded', 'not-loaded', 'misunderstood', 'loaded-but-ignored'] as const) {
-      expect((recordRecallFeedback({ noteId: 'cross-harness', result, detail: 'fixture outcome' }) as any).result).toBe(result);
+    const state = temp();
+    for (const result of ['not-loaded', 'misunderstood', 'loaded-but-ignored', 'no-action'] as const) {
+      const feedback = await recordRecallFeedback(state, { taskId: `task-${result}`, noteId: 'cross-harness',
+        noteDigest: loaded.digest, result, evidence: ['fixture assertion'], detail: 'fixture outcome' }) as any;
+      expect(feedback.result).toBe(result);
+      expect(readFileSync(join(state, feedback.path), 'utf8')).toContain(feedback.digest);
     }
+  });
+
+  test('recall feedback is durable, evidence-linked, idempotent, and taxonomy-complete', async () => {
+    const state = temp();
+    const input = { taskId: 'task-42', noteId: 'lesson-1', noteDigest: digestOfString('lesson'),
+      result: 'applied' as const, evidence: ['test:phase3 recall action'], disposition: 'retain' as const,
+      detail: 'The recalled rule changed the verification action.' };
+    const first = await recordRecallFeedback(state, input) as any;
+    const replay = await recordRecallFeedback(state, input) as any;
+    expect(first.replayed).toBe(false);
+    expect(replay.replayed).toBe(true);
+    expect(replay.digest).toBe(first.digest);
+    expect(readFileSync(join(state, first.path), 'utf8')).toContain('test:phase3 recall action');
+    if (process.platform !== 'win32') expect(statSync(join(state, first.path)).mode & 0o777).toBe(0o600);
+    expect(readdirSync(join(state, 'recall-feedback'))).toHaveLength(1);
+    if (process.platform !== 'win32') {
+      chmodSync(join(state, first.path), 0o644);
+      const repaired = await recordRecallFeedback(state, input) as any;
+      expect(repaired.replayed).toBe(true);
+      expect(statSync(join(state, first.path)).mode & 0o777).toBe(0o600);
+    }
+
+    const unresolved = await recordRecallFeedback(state, { taskId: 'task-43', result: 'not-found',
+      evidence: ['recall returned zero candidates'], detail: 'No matching guidance existed.' }) as any;
+    expect(unresolved.result).toBe('not-found');
+    await expect(recordRecallFeedback(state, { taskId: 'task-44', noteId: 'lesson-1', result: 'applied',
+      evidence: ['action happened'], detail: 'Missing digest.' })).rejects.toThrow();
+    await expect(recordRecallFeedback(state, { taskId: 'task-45', result: 'inaccessible',
+      evidence: [], detail: 'No evidence.' })).rejects.toThrow();
+    const loaded = await recordRecallFeedback(state, { taskId: 'task-46', noteId: 'lesson-1',
+      noteDigest: digestOfString('lesson'), result: 'loaded', evidence: ['digest-bound body read'],
+      detail: 'The note body was read without a later action.' }) as any;
+    expect(loaded.result).toBe('loaded');
+    await expect(recordRecallFeedback(state, { taskId: 'task-47', result: 'no-action',
+      evidence: ['no change warranted'], detail: 'Missing note identity.' })).rejects.toThrow();
+
+    writeFileSync(join(state, first.path), '{"changed":true}\n');
+    await expect(recordRecallFeedback(state, input)).rejects.toMatchObject({ code: 'EEXIST' });
+  });
+
+  test('recall feedback rejects a symlinked feedback directory', async () => {
+    if (process.platform === 'win32') return;
+    const state = temp(), outside = temp();
+    symlinkSync(outside, join(state, 'recall-feedback'), 'dir');
+    await expect(recordRecallFeedback(state, { taskId: 'task-symlink', result: 'not-found',
+      evidence: ['zero candidates'], detail: 'No note matched.' })).rejects.toMatchObject({ code: 'unsafe-recall-feedback-directory' });
+    const fileState = temp();
+    writeFileSync(join(fileState, 'recall-feedback'), 'collision');
+    await expect(recordRecallFeedback(fileState, { taskId: 'task-file', result: 'not-found',
+      evidence: ['zero candidates'], detail: 'No note matched.' })).rejects.toMatchObject({ code: 'unsafe-recall-feedback-directory' });
   });
 
   test('audits malformed, BOM, raw observation, injection, secret, duplicate, and missing-reference notes', async () => {

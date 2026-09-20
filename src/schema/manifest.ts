@@ -13,8 +13,8 @@
  *
  * Records the expected activated, activated-kernel, and static-prefix id sets per
  * scenario. Evaluation is set-equality in both directions. Keeping the static
- * prefix inventory independent matters because a dormant kernel is still shipped
- * in the prefix and must not disappear merely because it did not activate.
+ * prefix inventory independent matters because activation and rendering are separate
+ * checks: only activated kernels may appear, and none may disappear from the prefix.
  *
  * Every path in a manifest is normalized and relative; unsafe paths are rejected
  * without echoing the input. Purity: no I/O, no clock.
@@ -55,7 +55,7 @@ export interface MembershipScenario {
   expectedIds: readonly string[];
   /** Independently authored exact kernel set; never inferred from document tiers. */
   expectedKernelIds: readonly string[];
-  /** Independently authored exact content-id set emitted in the static prefix. */
+  /** Independently authored exact activated-kernel set emitted in the static prefix. */
   expectedStaticIds: readonly string[];
 }
 
@@ -157,8 +157,10 @@ export function validateMembershipManifest(
         }),
       );
     }
-    if (scenario.expectedKernelIds.some(id => !scenario.expectedStaticIds.includes(id))) {
-      errors.push(aosError('membership-mismatch', `scenario \`${scenario.id}\` activates a kernel absent from its static prefix`, {
+    const expectedKernel = [...scenario.expectedKernelIds].sort();
+    const expectedStatic = [...scenario.expectedStaticIds].sort();
+    if (JSON.stringify(expectedKernel) !== JSON.stringify(expectedStatic)) {
+      errors.push(aosError('membership-mismatch', `scenario \`${scenario.id}\` does not declare the exact activated-kernel static prefix`, {
         id: scenario.id,
       }));
     }
@@ -327,8 +329,9 @@ export function evaluateMembership(
     const actualKernel = [...activation.value.kernelIds].sort();
     const kernelExact = JSON.stringify(expectedKernel) === JSON.stringify(actualKernel);
     const expectedStatic = [...scenario.expectedStaticIds].sort();
+    const activated = new Set(activation.value.ids);
     const actualStatic = (documents as readonly ContentDocument[])
-      .filter(document => document.tier === 'kernel' &&
+      .filter(document => document.tier === 'kernel' && activated.has(document.id) &&
         (document.targetHarnesses.includes('*') || document.targetHarnesses.includes(scenario.harness)))
       .map(document => document.id).sort();
     const staticExact = JSON.stringify(expectedStatic) === JSON.stringify(actualStatic);

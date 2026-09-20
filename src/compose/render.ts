@@ -13,7 +13,7 @@
  *   `key=value` in the order `id`, `v`, `tier`, `bytes`.
  * - Exactly one `\n` follows the header, and none is inserted after the body — the
  *   caller owns inter-segment separation. This makes the payload a pure concatenation
- *   of segment texts, which is what gives the static prefix its invariance.
+ *   of segment texts and keeps a scenario's activated-kernel prefix byte-stable.
  * - `bytes` is the UTF-8 byte length of the *body* (not of the header, not of the
  *   source document) — the number a per-entry budget check compares against.
  * - No source path, no host path, no identity, no timestamp, no ordering counter

@@ -32,18 +32,22 @@ core, so platform behavior is Bun's plus the operating system's.
 
 | Platform | Status | Basis | Notes |
 | --- | --- | --- | --- |
-| macOS ARM64 (Apple Silicon) | **Provisional** | Locally reproduced with the commands named in §5 on this checkout | This is the only platform with real execution evidence. See §5 for the exact scope; it does not extend to live harness behavior or power-loss durability. |
+| macOS ARM64 (Apple Silicon) | **Verified** | Standing `macos-latest` GitHub Actions job runs `bun verify`; public baseline `3a7967ff3295a2e519550419e4515b50a7ec34dd`, run [35492796432](https://github.com/hendo-repo/hendoOS-template/actions/runs/35492796432) | Portable repository gates only; no local desktop/harness or power-loss claim. |
 | Linux ARM64 | **Provisional** | A prior candidate revision reached a passing suite before the hook adapter existed | That evidence predates the hook and management lanes, so it does not cover the current tree. Re-run the §5 commands on Linux ARM64 before treating any row as covered there. |
-| Linux x86_64 | **Provisional** | Phase 4 lifecycle tests and `bun verify` run locally on the exact candidate named in its receipt | Includes disposable restore and POSIX stop/resume race proof; live harness behavior and power loss remain outside scope. |
-| Windows (native, no bash) | **UNVERIFIED** | No gate has been run | The renderer refuses `win32` outright because the generated shim needs POSIX `sh`. Native Windows execution is a *target*, not a claim. |
+| Linux x86_64 | **Verified** | Standing `ubuntu-latest` GitHub Actions job; public baseline `3a7967ff3295a2e519550419e4515b50a7ec34dd`, run [35492796432](https://github.com/hendo-repo/hendoOS-template/actions/runs/35492796432) | Includes portable lifecycle tests; live behavior remains limited to named harness evidence. |
+| Windows (native, no bash) | **Verified** | Standing `windows-latest` GitHub Actions job; public baseline `3a7967ff3295a2e519550419e4515b50a7ec34dd`, run [35492796432](https://github.com/hendo-repo/hendoOS-template/actions/runs/35492796432) | Portable Bun suite only. The POSIX hook shim remains unsupported on Windows and its direct-execution test is explicitly skipped there. |
 | WSL / Git Bash on Windows | **UNVERIFIED** | No gate has been run | Not a target platform; not assessed. |
 
-### Why no platform row is "Verified"
+### Scope of the verified rows
 
-A row reaches **Verified** when §5 names a literal command, names the artifact
-state it ran on, and the outcome has been reproduced by a standing gate rather
-than a single local run. macOS ARM64 is closest, but its evidence is one local
-reproduction on one machine, which is **Provisional** by definition above.
+The standing Verify workflow runs `bun install --frozen-lockfile` and `bun verify`
+on Ubuntu, macOS ARM64, and native Windows for every push and pull request. A green
+row proves only the portable repository gates at the named revision. It does not
+generalize to a live desktop, untested harness surface, POSIX shim on Windows, or
+power-loss durability.
+
+The baseline above establishes the standing gate; an accepted release still needs a
+fresh successful run named in its release or acceptance receipt.
 
 Fixed test counts are deliberately absent from this document. Bun tests are
 added continuously, so a pinned number is stale almost immediately. §5 names the
@@ -119,7 +123,7 @@ live configuration directory.
 | Upstream's suite (`make verify`, `tests/run.sh`) | Upstream's own tree | **No** — it is not this repository's suite, and running it here would prove nothing about AOS |
 | `bun test tests/repairs.test.ts tests/phase6.test.ts` | Migrated recall, trust propagation, recoverable closeout, stale-writer/index refusal, skill ownership, Codex adapter, and handoff boundaries | **Yes** |
 | `bun scripts/prove-phase6.ts ...` | One exact-revision disposable Codex 0.155.1 exec/child model corpus and fired-hook receipts | **Optional private live proof; explicit paths/auth required** |
-| Platform gate | Native Windows / macOS / Linux execution parity | **No gate exists.** Evidence is a single local macOS ARM64 reproduction. |
+| Platform gate | Portable Bun suite on native Ubuntu, macOS ARM64, and Windows | **Standing gate:** `.github/workflows/verify.yml` runs `bun verify` on all three. |
 
 **Rule for advancing any row above:** a gate is named by its literal command, the
 artifact state it ran on is named (commit or digest) with the verdict, and the
