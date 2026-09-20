@@ -7,7 +7,10 @@ AOS is a new Bun/TypeScript implementation of the Agentic OS operating framework
 - Upstream: https://github.com/QuestionPilot/agentic-os-template
 - Pinned revision: `d0fb34feb4ddb2baaa7c0435a77649e7fdccd311`
 - License: MIT; the upstream license is preserved verbatim in `LICENSE`.
-- Read upstream content through committed Git objects. Never copy an operator's working directory, configuration, vault, memory, or Git history into this repository.
+- Read upstream framework content through committed Git objects. Never copy an
+  operator's working directory, configuration, vault, memory, or private Git
+  history into the public template. The private daily-driver repository owns
+  its reviewed `vault/` corpus; the default-deny export excludes it.
 - AOS freezes its reference at this revision. The existing OS remains independent and operational; it is not frozen or migrated.
 - Updating the pin requires a reviewed source comparison, scenario tests, and an explicit content-version change. No automatic upstream synchronization occurs.
 

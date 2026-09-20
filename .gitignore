@@ -6,3 +6,10 @@ coverage/
 !.env.example
 local.env
 .DS_Store
+.hendoos/
+vault/.obsidian/workspace.json
+vault/.obsidian/workspace-mobile.json
+vault/.trash/
+vault/.agents/
+vault/.claude/
+vault/00-System/Machine Bootstrap/local/

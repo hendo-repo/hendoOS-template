@@ -25,6 +25,7 @@ anything.
 | `src/effects/install.ts` | The only installer writer: journaled install, uninstall, recovery | Implemented |
 | `src/effects/drift.ts` | Read-only drift detection against an independent manifest | Implemented |
 | `src/edges/working-loop.ts` | Explicit JSON edge for spine skills, durable recall/indexes, and idempotent closeout | Implemented for Codex and Hermes project roots |
+| `src/edges/vault.ts` | Read-only vault inventory and exact manifest comparison | Implemented; explicit roots only |
 | `src/edges/hook.ts` | Native `PreToolUse` adapter (`Edit`/`Write`, POSIX) | Implemented as a **shadow test adapter**: it reports `would-allow`/`would-deny`/`indeterminate` and emits no native permission decision |
 | `src/state/store.ts` | SQLite receipt/state store | Implemented |
 | `content/` | Starter corpus and membership manifest | Implemented (generation 2) |
@@ -50,7 +51,7 @@ bun install --frozen-lockfile
 
 ```sh
 bun run typecheck          # bun run --bun tsc --noEmit
-bun test                   # the whole suite
+bun test tests             # the maintained suite; vault evidence is data, not test input
 bun test tests/manage.test.ts   # the management CLI subprocess tests
 bun verify                 # typecheck + tests + architecture + public scan + content
 ```
@@ -190,7 +191,7 @@ skills/     exactly three reviewed OS-spine skills plus pinned provenance
 src/        core (schema, compose, policy, protocols), effects, edges, state
 templates/  clean public examples and empty vault scaffold
 tests/      Bun test suites
-vault/      durable private knowledge boundary (migration remains later work)
+vault/      canonical private durable knowledge (never publicly exported)
 ```
 
 Licensing and third-party attribution: see `LICENSE` and `NOTICE`.

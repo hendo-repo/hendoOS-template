@@ -48,7 +48,7 @@ Fixed test counts are deliberately absent from this document. Bun tests are
 added continuously, so a pinned number is stale almost immediately. §5 names the
 commands and the proof scope instead, and any count quoted elsewhere must be
 read as scoped to the run that produced it. As a recent local data point only,
-`bun test` on this checkout collected and passed every test across the suite,
+`bun test tests` on this checkout collected and passed every maintained test across the suite,
 including the hook and management subprocess tests.
 
 ## 3. Capability matrix (pinned upstream contracts vs AOS)
@@ -103,7 +103,7 @@ live configuration directory.
 | Gate | What it proves | Can it be run? |
 | --- | --- | --- |
 | `bun run typecheck` | Strict TypeScript acceptance over `src`, `tests`, `scripts` | **Yes** |
-| `bun test` | The whole suite in temporary directories: core boundaries, composition, policy, runtime, MCP, hooks and management CLI subprocess tests | **Yes** |
+| `bun test tests` | The maintained suite in temporary directories: core boundaries, composition, policy, runtime, MCP, hooks and management CLI subprocess tests; raw vault evidence is excluded from discovery | **Yes** |
 | `bun verify` | The five required gates in order: typecheck, tests, architecture, public-source scan, content validation | **Yes** |
 | `bun run verify --content` / `--public` | Content and membership validity alone; public-source scan alone | **Yes** |
 | `bun test tests/manage.test.ts` | Management CLI contract: help, render, install, drift, uninstall, recover, doctor, and invalid-input refusal, all through real subprocesses in temporary roots | **Yes** |

@@ -168,6 +168,14 @@ describe('public gate, real Git/filesystem controls', () => {
     expect(rules(treeOnly)).not.toContain(RULES.EMAIL);
     expect(rules(treeOnly)).toContain(RULES.CRED_GITHUB_TOKEN);
   });
+  test('default-deny source validation scans exactly selected public paths and refuses missing selections', () => {
+    const root = repo(); put(root, 'README.md', 'Public project guidance.\n'); put(root, 'vault/private.md', key());
+    const selected = scanPublicRepo({ root, env, skipHistory: true, includePaths: ['README.md'] });
+    expect(selected.result).toBe('pass'); expect(selected.stats.candidates).toBe(1); expect(selected.stats.scanned).toBe(1);
+    expect(rules(selected)).not.toContain(RULES.CRED_GITHUB_TOKEN);
+    const missing = scanPublicRepo({ root, env, skipHistory: true, includePaths: ['README.md', 'missing.md'] });
+    expect(missing.fatal).toBe(true); expect(rules(missing)).toContain(RULES.ENUMERATION);
+  });
 });
 
 describe('architecture gate', () => {

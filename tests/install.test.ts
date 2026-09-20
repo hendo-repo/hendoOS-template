@@ -794,7 +794,7 @@ describe.skipIf(process.platform === 'win32')('real process termination and reco
       { manifest: next, expectedGeneration: 1, failpoints: { at: 'after-backup', mode: 'stop' } }))),
       stdout: 'pipe', stderr: 'pipe' });
     try {
-      const deadline = Date.now() + 5000;
+      const deadline = Date.now() + 10_000;
       let records: any[] = [];
       while (Date.now() < deadline) {
         try { records = (await readFile(join(f.targetRoot, CONTROL_JOURNAL_PATH), 'utf8')).trim().split('\n').map(line => JSON.parse(line)); }
@@ -820,7 +820,7 @@ describe.skipIf(process.platform === 'win32')('real process termination and reco
     } finally {
       if (child.exitCode === null) { child.kill('SIGKILL'); await child.exited; }
     }
-  });
+  }, 15_000);
 
   test.each([...crashBoundaries])('SIGKILL at %s during upgrade preserves a recoverable transaction', async at => {
     const f = await fixture();

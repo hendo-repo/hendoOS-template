@@ -151,7 +151,7 @@ reader.close();
 
 ```sh
 bun test tests/indexes.test.ts
-bun test
+bun test tests
 bun run --bun tsc --noEmit
 bun verify
 ```

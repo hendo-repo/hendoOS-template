@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { readdir } from 'node:fs/promises';
+import { readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { CREDENTIAL_RULES, ENV_VARS, configuredLiteralRegex, parseLiteralList,
@@ -7,6 +7,7 @@ import { CREDENTIAL_RULES, ENV_VARS, configuredLiteralRegex, parseLiteralList,
 import { buildActivation, buildContentCorpus, evaluateMembership, validateMembershipManifest,
   type AosErrorCode, type ContentSourceFile } from '../src/schema/index.ts';
 import { compose } from '../src/compose/index.ts';
+import { parsePublicExportManifest } from './export-public.ts';
 
 export const MIN_BUN = '1.4.2';
 export const PROJECT_ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -325,7 +326,7 @@ export async function validateContent(root: string): Promise<{ files: number; do
 export function verificationGates(): GateSpec[] {
   return [
     { name: 'typecheck', argv: [process.execPath, 'run', '--bun', 'tsc', '--noEmit'] },
-    { name: 'tests', argv: [process.execPath, 'test'], requireTests: true, timeoutMs: 300_000 },
+    { name: 'tests', argv: [process.execPath, 'test', 'tests'], requireTests: true, timeoutMs: 300_000 },
     { name: 'architecture', argv: [process.execPath, 'scripts/check-architecture.ts'] },
     { name: 'public', argv: [process.execPath, 'scripts/verify.ts', '--public'] },
     { name: 'content', argv: [process.execPath, 'scripts/verify.ts', '--content'] },
@@ -345,7 +346,8 @@ if (import.meta.main) {
       // can check out a provider-created pull-request merge commit whose
       // identity is outside the exported tree and cannot be made public-safe.
       // Export staging and the standalone public scanner still inspect history.
-      const report = scanPublicRepo({ root: PROJECT_ROOT, skipHistory: true });
+      const manifest = parsePublicExportManifest(await readFile(join(PROJECT_ROOT, 'public-export.manifest.json'), 'utf8'));
+      const report = scanPublicRepo({ root: PROJECT_ROOT, skipHistory: true, includePaths: manifest.files });
       // Report evidence without echoing the checkout path or matched private data.
       emit({ schema: 'aos.public/v1', status: report.result, stats: report.stats,
         history: { state: report.history.state, commits: report.history.commits },

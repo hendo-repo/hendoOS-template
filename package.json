@@ -10,10 +10,11 @@
     "bun": ">=1.4.2"
   },
   "scripts": {
-    "test": "bun test",
+    "test": "bun test tests",
     "typecheck": "bun run --bun tsc --noEmit",
     "verify": "bun scripts/verify.ts",
     "benchmark": "bun scripts/benchmark.ts",
+    "vault": "bun src/edges/vault.ts",
     "prove:skills": "bun scripts/prove-skills.ts",
     "export:public": "bun scripts/export-public.ts"
   },

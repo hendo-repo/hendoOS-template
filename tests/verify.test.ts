@@ -34,6 +34,7 @@ describe('runtime and test-count guards', () => {
     const gates = verificationGates();
     expect(gates.map(gate => gate.name)).toEqual(['typecheck', 'tests', 'architecture', 'public', 'content']);
     expect(gates[0]!.argv).toEqual([process.execPath, 'run', '--bun', 'tsc', '--noEmit']);
+    expect(gates[1]!.argv).toEqual([process.execPath, 'test', 'tests']);
     expect(gates[1]!.requireTests).toBe(true);
   });
 });

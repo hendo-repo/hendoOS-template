@@ -16,7 +16,7 @@ bun verify
 
 The verifier uses explicit argument arrays and the current Bun executable.
 It runs these required gates in order: typecheck (`bun run --bun tsc --noEmit`),
-tests (`bun test`), architecture, public-source scan, and content validation.
+tests (`bun test tests`), architecture, public-source scan, and content validation.
 Each gate runs even when an earlier gate fails. No required gate can be disabled.
 Content validation compiles all content Markdown, rejects empty or degraded
 corpora, and checks every membership scenario through the schema API.
@@ -56,17 +56,23 @@ include `redactions` (the number of disjoint spans in the combined transcript) a
 reason `unsafe-output-redacted`, unless an incomplete-child reason takes priority.
 Test counts and child exit codes are derived from the original execution, not
 the redacted text. No raw-output bypass or secret-bearing match labels are emitted.
-The public gate calls the existing scanner through a tree-only wrapper that reports
-counts and rule IDs without printing its absolute checkout path. It deliberately
-skips commit history because private pull-request jobs can run against a
-provider-created merge commit whose identity is not part of the export. The
-exporter scans the independent staged history, and public-repository CI runs
-`bun scripts/check-public.ts --json` as a separate full tree-and-history gate.
+The private repository's public gate calls the existing scanner through a
+tree-only wrapper over exactly the paths named by the default-deny export
+manifest. It reports counts and rule IDs without printing its absolute checkout
+path. Private `vault/`, `config/`, evidence, and local bindings are therefore
+outside the publish candidate instead of relying on broad content exemptions.
+The gate deliberately skips commit history because private pull-request jobs can
+run against a provider-created merge commit whose identity is not part of the
+export. The exporter scans the independent staged history, and public-repository
+CI runs `bun scripts/check-public.ts --json` as a separate full tree-and-history
+gate over every shipped file.
 Generic checks remain active without private configuration. This cannot establish
 the absence of private data that has no configured or recognizable signature.
 
 The helper tests use temporary fixtures and synthetic child commands. They never
-launch the full verifier from inside `bun test`. Platform coverage remains unknown
+launch the full verifier from inside `bun test tests`. Test discovery is scoped to
+the maintained `tests/` tree so files retained as raw vault evidence are never
+executed as repository tests. Platform coverage remains unknown
 until the CI matrix runs; local passing tests prove only that local environment.
 CI installs the frozen lock on Linux, macOS, and Windows with Bun 1.4.2. In the
 public repository it also scans commit history. It needs only read access to

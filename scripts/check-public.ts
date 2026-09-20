@@ -147,6 +147,8 @@ export interface PublicCheckOptions {
   skipHistory?: boolean;
   maxFindingsPerRulePerFile?: number;
   maxFileBytes?: number;
+  /** Exact private-source paths selected by the default-deny public manifest. */
+  includePaths?: string[];
 }
 
 export interface PublicCheckReport {
@@ -642,9 +644,12 @@ export function scanPublicRepo(options: PublicCheckOptions = {}): PublicCheckRep
   base.root = topLevel;
 
   const enumerated = enumeratePublishCandidates(topLevel, env);
+  const available = new Set(enumerated.paths);
+  const selected = options.includePaths ? [...options.includePaths] : enumerated.paths;
+  const missingSelected = selected.filter(path => !available.has(path));
   base.enumeration = {
     ok: enumerated.ok,
-    candidates: enumerated.paths.length,
+    candidates: selected.length,
     command: ["git", "-C", "<root>", ...ENUMERATION_PINS, ...ENUMERATION_ARGS],
     detail: enumerated.detail,
   };
@@ -661,7 +666,12 @@ export function scanPublicRepo(options: PublicCheckOptions = {}): PublicCheckRep
     base.stats.errors = errors.length;
     return base;
   }
-  if (enumerated.paths.length === 0) {
+  if (missingSelected.length) {
+    errors.push({ ruleId: RULES.ENUMERATION, severity: 'error', scope: 'path', path: topLevel,
+      message: `selected publish candidate is missing: ${missingSelected[0]}`, fatal: true });
+    base.fatal = true; base.stats.errors = errors.length; return base;
+  }
+  if (selected.length === 0) {
     errors.push({
       ruleId: RULES.ZERO_COVERAGE,
       severity: "error",
@@ -675,10 +685,10 @@ export function scanPublicRepo(options: PublicCheckOptions = {}): PublicCheckRep
     return base;
   }
 
-  base.stats.candidates = enumerated.paths.length;
+  base.stats.candidates = selected.length;
 
   const push = (finding: Finding) => findings.push(finding);
-  for (const relPath of enumerated.paths) {
+  for (const relPath of selected) {
     scanPathForText(relPath, { path: relPath, scope: "path", policy, push });
 
     const absolute = join(topLevel, relPath);
