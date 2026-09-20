@@ -60,7 +60,8 @@ A private-repository test result is not public-template evidence.
 ## Contribution return path
 
 Public contributions are reviewed in the public repository, then applied as a
-new private commit with provenance. Resolve conflicts in the private source;
+new private commit with provenance. Record the public commit identifier in the
+private review so the return path stays auditable. Resolve conflicts in the private source;
 never make the public tree a second authority. Re-export the resulting private
 commit, compare the exact staged tree with the public branch, rerun the clean
 clone acceptance commands, and publish the result through another reviewed
