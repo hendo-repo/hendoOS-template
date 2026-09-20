@@ -11,6 +11,8 @@ export const NoteMetadataSchema = z.strictObject({
   lifecycle: z.enum(['active', 'superseded', 'archived']), updated: date,
   provenance: z.array(item).min(1), source_refs: z.array(item), learned_by: z.string().max(64).optional(),
   triggers: z.array(item).optional(), critical: z.boolean().optional(), trust: z.enum(['trusted', 'untrusted']),
+  origins: z.array(z.enum(['operator', 'agent-summary', 'tool', 'web', 'inferred', 'legacy-unknown'])).min(1).optional(),
+  authority: z.enum(['instructional', 'reference', 'evidence']).optional(),
 }).superRefine((value, ctx) => {
   if (new Set(value.scope).size !== value.scope.length) ctx.addIssue({ code: 'custom', path: ['scope'], message: 'duplicate-scope' });
   if (new Set(value.harness).size !== value.harness.length) ctx.addIssue({ code: 'custom', path: ['harness'], message: 'duplicate-harness' });
@@ -29,5 +31,7 @@ export const RecallRequestSchema = z.strictObject({
 });
 export type RecallRequest = z.infer<typeof RecallRequestSchema>;
 export const RecallFeedbackSchema = z.strictObject({ noteId: id,
-  result: z.enum(['loaded', 'not-loaded', 'misunderstood', 'loaded-but-ignored']), detail: z.string().min(1).max(1000) });
+  result: z.enum(['inaccessible', 'not-found', 'loaded', 'not-loaded', 'misunderstood', 'loaded-but-ignored', 'stale-or-incorrect', 'disproportionate', 'applied']),
+  noteDigest: z.string().regex(/^sha256:[0-9a-f]{64}$/).optional(), evidence: z.array(item).max(20).optional(),
+  disposition: z.enum(['none', 'retain', 'revise', 'supersede', 'retire']).default('none'), detail: z.string().min(1).max(1000) });
 export type RecallFeedback = z.infer<typeof RecallFeedbackSchema>;
