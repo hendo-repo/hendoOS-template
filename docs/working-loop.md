@@ -36,25 +36,34 @@ actions catalog/render spine skills; audit, recall, explicitly load, and index
 durable notes; or run closeout. Recall returns metadata first (`not-loaded`) and
 requires a digest-bound body read (`loaded`), so absence, non-loading, changed
 content, misunderstanding, and loaded-but-ignored feedback remain distinct.
-Project notes lead, matching lessons follow, critical active lessons cannot be
-hidden by ordinary trigger ranking, and `listAll` plus bounded pagination is the
-escape hatch.
+Project notes lead, applicable active decisions follow, then matching lessons;
+critical active lessons cannot be hidden by ordinary trigger ranking, and
+`listAll` plus bounded pagination is the escape hatch. Native v1 notes and the
+supported migrated-vault classes share one read contract without rewriting the
+legacy files. Unsupported classes and excluded derived views are reported
+separately. Lexical token/stem overlap is a small recall aid, not semantic
+retrieval.
 
 Durable Markdown notes have stable IDs, lifecycle, scope, harness audience,
-provenance, source references, date ordering, and an explicit trust label.
-`learned_by` records provenance only; it is never an audience filter. Raw
-observations are untrusted. Audits reject malformed frontmatter, BOM bypasses,
-prompt-injection patterns, common credential forms, duplicate IDs, broken local
-references, symlinks, and resource-limit violations. Native memory stores remain
-caches and are not authorities.
+provenance, source references, date ordering, trust, origin, and authority.
+Recall and read responses carry source identity and note-local audit findings;
+storage trust alone never makes text instructional. `learned_by` records
+provenance only; it is never an audience filter. Raw observations and mixed
+session summaries are untrusted evidence. Audits reject malformed frontmatter,
+BOM bypasses, active prompt-injection patterns, common credential forms,
+duplicate IDs, broken local references, symlinks, and resource-limit violations.
+Native memory stores remain caches and are not authorities.
 
-Indexes are deterministic, paginated, reference-backed, and published as an
-immutable generation selected by one atomic `CURRENT` pointer. Closeout uses a
-stable ID and request digest, checks tracker update/readback identity, refuses a
-newer project writer, writes one durable session note, updates factual project
-state, leaves lessons and decisions as proposals, reruns audit/index publication,
-and retains a retryable failure receipt. Replaying the same completed request is
-safe; changing a request behind the same ID is refused.
+Indexes are deterministic, paginated, reference-backed, bound to a source
+snapshot, and published as an immutable generation selected by one atomic
+`CURRENT` pointer. Closeout uses a stable ID and request digest, checks tracker
+update/readback identity, validates drafts before mutation, and uses a shared
+project lock plus re-read to refuse stale writers. It writes one mixed-origin
+session evidence note, updates factual project state, leaves lessons and
+decisions as proposals, reruns scoped readback and source-bound index
+publication, and retains a staged retryable failure receipt. These are separate
+durable file operations, not multi-file atomicity. Replaying the same completed
+request is safe; changing a request behind the same ID is refused.
 
 Tracker prefixes use one shared comma-separated parser. Values normalize to
 uppercase and reject empty items, leading digits, illegal characters, and

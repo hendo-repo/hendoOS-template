@@ -144,6 +144,17 @@ indexes, idempotent closeout, newer-writer refusal, and shared tracker grammar.
 `docs/working-loop.md`; it is not part of `bun verify` because Codex and Hermes
 are external installations.
 
+# Phase 6 repair and live checks
+
+`bun test tests/repairs.test.ts tests/phase6.test.ts` covers migrated-note
+adaptation and recall, audit-state propagation, closeout draft/fault/retry and
+stale-writer barriers, source-bound index publication, skill-render ownership
+and rollback, the versioned harness matrix, the Codex shadow/enforcement
+response boundary, exact rendered handler, degraded assets, and independently
+verified handoffs. `bun run prove:phase6 -- ...` is the authenticated Codex
+model corpus. It is outside `bun verify`, requires explicit executable, auth,
+revision, source, and private output paths, and cleans its owned scratch tree.
+
 # Phase 4 lifecycle checks
 
 `bun test tests/drift.test.ts tests/install.test.ts tests/hooks.test.ts

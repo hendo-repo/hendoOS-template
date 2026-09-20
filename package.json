@@ -16,6 +16,7 @@
     "benchmark": "bun scripts/benchmark.ts",
     "vault": "bun src/edges/vault.ts",
     "prove:skills": "bun scripts/prove-skills.ts",
+    "prove:phase6": "bun scripts/prove-phase6.ts",
     "export:public": "bun scripts/export-public.ts"
   },
   "dependencies": {

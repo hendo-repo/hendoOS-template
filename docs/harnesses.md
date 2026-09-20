@@ -1,6 +1,9 @@
 # Disposable native hook delivery
 
-Status: **PROVISIONAL; candidate for independent review.** The adapter runs the shared `RuntimeService` and records real local receipts from synthetic observations. It never grants live authorization. No agent session, account action, or live installation was used to test it.
+Status: the Claude adapter below remains **PROVISIONAL and shadow-only**. Phase 6
+also adds a separately versioned Codex 0.155.1 adapter and live disposable proof;
+see [Phase 6](phase6.md) and `config/harness-surfaces.json`. Claims do not cross
+adapter, version, or launch-surface boundaries.
 
 ## Official contract and scope
 
