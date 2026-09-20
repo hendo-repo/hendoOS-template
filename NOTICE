@@ -1,0 +1,64 @@
+# NOTICE
+
+This file records provenance and third-party attribution for the Agentic OS
+(AOS) repository. It is an attribution notice, not an additional license.
+
+## 1. Upstream provenance
+
+Substantial portions of this repository's framework content are derived from the
+public Agentic OS template:
+
+- Upstream repository: https://github.com/QuestionPilot/agentic-os-template
+- Pinned commit: `d0fb34feb4ddb2baaa7c0435a77649e7fdccd311`
+- Pinned commit subject: "Make Hermes a first-class framework harness (#157)"
+- Pinned commit date: 2026-09-19
+
+AOS pins that commit and nothing later. Content taken from upstream is used
+under the terms of the upstream license reproduced verbatim in `LICENSE`
+(MIT, "Copyright (c) 2026 Agentic OS contributors") — the same file the upstream
+tree ships. Upstream's license text is preserved unmodified; this notice does
+not relicense, extend, or restrict it.
+
+Upstream content that may be ported or referenced here includes, but is not
+limited to: `core/`, `capabilities/`, `harnesses/`, `playbooks/`,
+`verification/`, `skills/`, `linear/`, `obsidian/`, `templates/`, `examples/`,
+`scripts/`, `tests/`, `Makefile`, and the root documentation files. Per-file
+provenance is determined by the pinned commit, not by this summary.
+
+## 2. Upstream's own third-party attributions
+
+The upstream tree cites third-party sources for adopted concepts. Those
+citations are reproduced here so attribution survives any port or re-authoring:
+
+| Source | As cited upstream | Nature of use |
+| --- | --- | --- |
+| `amElnagdy/delegate-skills` (MIT) — `writing-the-brief.md`, `review-and-land.md` | `core/operating-system.md` | Delegation-brief and executor-diff-review concepts adopted and adapted; wording is upstream's own |
+| `i-have-adhd` skill (MIT) — "When to break the rules", "Persistence" | `skills/skill-authoring.md` | Concept adopted and adapted; wording is upstream's own |
+| `mattpocock/skills` (MIT) — `writing-for-agents` reference | `skills/skill-authoring.md` §§13–15 | Concepts adopted and adapted; wording is upstream's own |
+| Contributor Covenant Code of Conduct, v2.1 | `CODE_OF_CONDUCT.md` | Code of conduct adapted, with upstream's own attribution block retained |
+| Mozilla code of conduct enforcement ladder | `CODE_OF_CONDUCT.md` | Community Impact Guidelines inspired by it |
+| AIS-OS Bike Method `bike-method-phase:` frontmatter pattern; AI Memory Framework Stage enum | `core/lifecycle.md` | `lifecycle:` frontmatter convention adapted from them |
+| "compound-engineering" refresh model | `core/memory-model.md` | Memory-maintenance vocabulary adapted to per-fact notes |
+| `agentskills.io` open standard | harness adapters | Skill-file format consumed, not owned |
+| `schpet/linear-cli` | `linear/linear-setup.md` | Optional operator-installed CLI; not vendored, not redistributed |
+| Anthropic-published skill marketplaces | `harnesses/claude/settings.base.json` | Marketplace references only; no third-party skill body is redistributed |
+
+Attribution here mirrors what the upstream tree states. No claim is made about
+a listed source beyond the use upstream itself describes.
+
+## 3. What this repository does not contain
+
+- No third-party skill, plugin, binary, or CLI archive is vendored or
+  redistributed. Framework-shipped capabilities are the project's own; every
+  tool choice is operator-installed and operator-local.
+- No operator-private data: no credentials, tokens, auth state, machine-specific
+  paths, vault contents, or tracker identifiers. The upstream cleanliness guard
+  (`scripts/check-clean.{sh,ps1}`) exists precisely to keep those out of a
+  publicly cloneable tree, and AOS inherits that rule.
+
+## 4. AOS-original content
+
+Content authored for AOS itself (this notice, the baseline inventory, the
+support matrix, and future implementation code) is distributed under the same
+MIT terms reproduced in `LICENSE`. No new copyright holder is asserted beyond
+the one the upstream license text already carries.

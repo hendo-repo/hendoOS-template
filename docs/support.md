@@ -1,0 +1,181 @@
+# Support
+
+What this repository supports, what it does not, and the evidence behind each
+line. Read `docs/baseline.md` for the pinned-upstream inventory this matrix
+refers to, and `README.md` for how to install and run what exists.
+
+**Read this first:** AOS is an **experimental, provisional implementation**. It
+has a pure TypeScript core, a shadow runtime CLI, an MCP stdio surface, a
+source-checkout management CLI, a staged installer, a read-only drift check and a
+deliberately non-enforcing native hook adapter. It has **no live enforcement**,
+**no released artifact**, and **no verified live harness registration**. Several
+matrix rows below are still "not implemented" or "not ported"; those describe
+work not done, not defects.
+
+## 1. Support levels
+
+| Level | Meaning |
+| --- | --- |
+| **Verified** | Reproduced by a gate whose command, artifact state, and outcome are named. |
+| **Provisional** | Exercised once, evidence exists, not yet reproduced by a standing gate. |
+| **UNVERIFIED** | Claimed or expected, never exercised. Must not be presented as working. |
+| **Not supported** | Out of scope, or known broken. |
+| **Not implemented** | Planned; no artifact exists in this repository. |
+
+## 2. Platform matrix
+
+The runtime is TypeScript under **Bun 1.4.2** using only Bun built-ins and
+Bun's Node-compatible filesystem APIs. There is no FFI, and no Node or Python
+core, so platform behavior is Bun's plus the operating system's.
+
+| Platform | Status | Basis | Notes |
+| --- | --- | --- | --- |
+| macOS ARM64 (Apple Silicon) | **Provisional** | Locally reproduced with the commands named in §5 on this checkout | This is the only platform with real execution evidence. See §5 for the exact scope; it does not extend to live harness behavior or power-loss durability. |
+| Linux ARM64 | **Provisional** | A prior candidate revision reached a passing suite before the hook adapter existed | That evidence predates the hook and management lanes, so it does not cover the current tree. Re-run the §5 commands on Linux ARM64 before treating any row as covered there. |
+| Linux x86_64 | **UNVERIFIED** | No gate has been run | The optional `Containerfile` builds an isolated image, but building or running it here would not by itself constitute Linux evidence. |
+| Windows (native, no bash) | **UNVERIFIED** | No gate has been run | The renderer refuses `win32` outright because the generated shim needs POSIX `sh`. Native Windows execution is a *target*, not a claim. |
+| WSL / Git Bash on Windows | **UNVERIFIED** | No gate has been run | Not a target platform; not assessed. |
+
+### Why no platform row is "Verified"
+
+A row reaches **Verified** when §5 names a literal command, names the artifact
+state it ran on, and the outcome has been reproduced by a standing gate rather
+than a single local run. macOS ARM64 is closest, but its evidence is one local
+reproduction on one machine, which is **Provisional** by definition above.
+
+Fixed test counts are deliberately absent from this document. Bun tests are
+added continuously, so a pinned number is stale almost immediately. §5 names the
+commands and the proof scope instead, and any count quoted elsewhere must be
+read as scoped to the run that produced it. As a recent local data point only,
+`bun test` on this checkout collected and passed every test across the suite,
+including the hook and management subprocess tests.
+
+## 3. Capability matrix (pinned upstream contracts vs AOS)
+
+| Surface | Upstream at pin | AOS today |
+| --- | --- | --- |
+| Content compiler (`install`) | Real, bash + PowerShell twins, deterministic manifests | **Implemented, differently scoped.** AOS renders a self-contained delivery and installs it through a journaled staged installer. It does not reproduce upstream's shell/pwsh twin layout. |
+| Drift gate (`check-drift`) | Real, manifest + auto modes, soft-drift cure envelope | **Implemented, read-only.** `src/effects/drift.ts` compares source and output digests against an independent manifest and reports `clean`/`drift`/`indeterminate`. There are no auto-cure modes. |
+| Validator (`validate`) | Real, bash + PowerShell twins | **Partially implemented.** Content and membership validation run inside `bun verify`'s content gate; there is no standalone `validate` surface. |
+| Cleanliness gate (`check-clean`) | Real, PII/tracker/commit-message coverage | **Implemented, narrower.** `scripts/check-public.ts` scans publish candidates, configured private literals, tracker prefixes, home paths, emails and credential patterns, and covers Git history state. Commit-message coverage and upstream's exact rule set are not reproduced. |
+| Advisory audits (`self-audit`, memory/state/linear checks) | Real | **Not implemented** |
+| Orientation producer (`orient`, `orient/v1`) | Real | **Implemented as a shadow operation.** `bun src/edges/cli.ts orient` composes deterministic context from explicit input; it does not produce upstream's directive format. |
+| Closeout pre-write gate (`closeout-gate`) | Real, fail-closed wrapper | **Not implemented** |
+| Capability specs + realizations (3 native × 4 harnesses) | Real, compiler input | **Not implemented** |
+| `core/` rules, playbooks, verification recipes | Real, normative prose | **Partially ported.** A starter corpus ships in `content/` (generation 2). It is a small seed set, not upstream's corpus, and it is described as such. |
+| Vault scaffolding (109 files, including 3 Node tools) | Real | **Not ported** |
+| Tracker / vault layer contracts | Documented as contracts, never auto-installed | **Not ported** |
+| Acceptance suite (75 stems, 145 files, bash↔pwsh parity-aware) | Real | **Not implemented** |
+| Harness adapters (claude / codex / hermes / cursor) | Real, version-pinned "verified against" lines | **One partial adapter.** A Claude Code `PreToolUse` adapter exists for `Edit`/`Write` on POSIX. It is a shadow test adapter that emits an `aos.shadow/v1` `additionalContext` report and never a native permission decision. See §4. |
+| Bun + TypeScript runtime for any of the above | **Absent upstream** — 0 `.ts` files, no `package.json` | **Implemented for the scope above.** |
+
+The last row remains the reason AOS exists: upstream is a shell/PowerShell/Markdown
+system, and AOS implements its contracts in TypeScript under Bun. That is a new
+implementation against upstream contracts, not a port of upstream code, and it is
+not a parity claim.
+
+## 4. Harness support
+
+AOS ships **one partial adapter**, and it is deliberately non-enforcing.
+
+| Harness | Upstream status at pin | AOS status | Enforcement caveats that will carry over |
+| --- | --- | --- | --- |
+| Claude Code | Supported (v2.1.207 baseline) | **Test adapter only** — `Claude Code PreToolUse`, matching `Edit\|Write`, POSIX. It reports `would-allow` / `would-deny` / `indeterminate` in `additionalContext`; it emits **no `permissionDecision`** and never uses the blocking exit `2`. No code path emits native `allow` either. | Native edit tools only; desktop/SDK variants do not persist assistant text, so the gate marker file is the primary declaration channel there. Live registration, trust prompts and vendor version compatibility are **UNVERIFIED**. |
+| Codex CLI | Supported (v0.144.1; hard floor v0.132.0) | **Not implemented** | Interactive TUI hook firing documented but **unproven**; trust is a user action (`/hooks`); `codex exec` behavior proven only for the specific launch tested; no gate-marker fallback. |
+| Hermes Agent | Supported (v0.18.2 baseline; v0.21.3 inspected; v0.16.0 desktop measured) | **Not implemented** | Needs the bridge plugin for GUI sessions; hooks ride `pre_llm_call` because `on_session_start` returns are discarded; hook wiring is a surfaced manual `config.yaml` merge plus consent. |
+| Cursor | Supported (v3.16.17) | **Not implemented** | Parity is per surface: headless CLI and desktop IDE proven; interactive CLI unproven; **Cloud Agents never fire lifecycle hooks**, so the gate degrades to soft enforcement there. |
+
+Two things this table is deliberately not claiming: that AOS will reach parity,
+and that any harness's behavior is uniform across its surfaces. Both upstream
+adapters and the pin's own CI comments are explicit that a claim is limited to
+its named version, surface, and trust configuration.
+
+**The adapter is not enforcement.** It emits no permission decision at all. A
+hook is a safety net at best, never a security boundary: upstream says so in its
+own hook headers. A missing shim, an unusable Bun binary, an OS kill or a host
+cancellation can suppress the shadow report entirely, and the host's own timeout
+contract can discard a command hook's output. Do not register this adapter in a
+live configuration directory.
+
+## 5. Verification gates
+
+| Gate | What it proves | Can it be run? |
+| --- | --- | --- |
+| `bun run typecheck` | Strict TypeScript acceptance over `src`, `tests`, `scripts` | **Yes** |
+| `bun test` | The whole suite in temporary directories: core boundaries, composition, policy, runtime, MCP, hooks and management CLI subprocess tests | **Yes** |
+| `bun verify` | The five required gates in order: typecheck, tests, architecture, public-source scan, content validation | **Yes** |
+| `bun run verify --content` / `--public` | Content and membership validity alone; public-source scan alone | **Yes** |
+| `bun test tests/manage.test.ts` | Management CLI contract: help, render, install, drift, uninstall, recover, doctor, and invalid-input refusal, all through real subprocesses in temporary roots | **Yes** |
+| `bun test tests/hooks.test.ts` | Hook adapter mapping, shadow `would-allow`/`would-deny`/`indeterminate` reports, the generated wrapper's startup-failure path, and direct execution of the exact rendered shim command | **Yes** |
+| `bun test tests/hooks.shadow.test.ts` | The `aos.shadow/v1` response contract: no `permissionDecision` in any reply, exit 0 complete / 1 incomplete, never exit 2 | **Yes** |
+| LICENSE provenance check | `LICENSE` byte-identical to the pinned upstream `LICENSE` (sha256 `b7023978…f78466`, 1080 bytes) | **Yes** — a `git show` + hash comparison |
+| Upstream's suite (`make verify`, `tests/run.sh`) | Upstream's own tree | **No** — it is not this repository's suite, and running it here would prove nothing about AOS |
+| Live harness gate | That a real agent session was actually affected by the hook | **No gate exists.** No live registration was ever performed. |
+| Platform gate | Native Windows / macOS / Linux execution parity | **No gate exists.** Evidence is a single local macOS ARM64 reproduction. |
+
+**Rule for advancing any row above:** a gate is named by its literal command, the
+artifact state it ran on is named (commit or digest) with the verdict, and the
+outcome is reproduced. A claim without those three parts stays UNVERIFIED,
+regardless of how it was produced.
+
+**What the passing gates do not prove:** that the hook changes anything in a live
+session, that the installer survives power loss, that any harness version is
+compatible, that a second platform behaves the same, or that any output
+authorizes a real action.
+
+## 6. Known limitations and non-guarantees
+
+Stated plainly so they do not have to be rediscovered:
+
+- **No post-verify enforcement and no closeout enforcement exist upstream.**
+  Upstream removed the closeout `Stop` hook deliberately and has no hook that
+  checks a verification gate ran. AOS implements neither.
+- **The shipped hook adapter emits no native permission decision.** A completed
+  synthetic allow is reported as `would-allow` and a completed synthetic deny as
+  `would-deny`, both inside a `provisional` / `enforcement: false` /
+  `nonDisruptive: true` `aos.shadow/v1` report; an incomplete run reports
+  `indeterminate` with a non-empty stderr diagnostic. Exit is `0` when the shadow
+  run completed and `1` when it did not — never the vendor's blocking exit `2`.
+  This is diagnostic traceability, not authorization, and it makes the adapter
+  unable to allow or deny a live tool call by design.
+- **Hook enforcement is a safety net, not a security boundary.** Upstream says
+  so in its own hook headers: a pasted capability heading can open the ran-check,
+  and the discipline net has a documented kill switch.
+- **Enforcement is absent on some surfaces** (Cursor Cloud Agents) and unproven
+  on others (Codex interactive TUI, Cursor interactive CLI).
+- **The orient directive is fire-and-forget text.** Nothing locks a run into
+  orienting.
+- **Uninstall does not remove operational state, and this is a visible residual
+  gap.** Operational state lives in a separate caller-supplied state directory
+  (`state.sqlite` and sidecars) and is **not** removed by `uninstall`. The
+  installer additionally retains a stable coordination file inside the target
+  so that cooperating processes cannot lock different inodes. Do **not** claim
+  zero global residue: a completed uninstall leaves that coordination file, and
+  separately supplied state remains wherever the caller put it.
+- **A clean git tree is a claim about tracked content only.** It does not cover
+  gitignored harness homes, user-owned config, or operator state.
+- **Two upstream snapshot-builder scripts are referenced by upstream's own parity
+  test but do not exist at the pin.** Upstream's test presence-guards the block
+  and reports a named skip; do not read the reference as evidence they ship.
+- **Upstream harness baselines are version-scoped and dated.** A newer harness
+  version is unverified until a human re-runs and re-pins the baseline.
+- **Operator tools are advisory and operator-local by design.** Upstream neither
+  vendors nor endorses them, and AOS inherits that posture.
+- **Nothing here is an upgrade promise.** The pin is frozen (see `baseline.md`
+  §8); a moving pin requires a reviewed rebase, and no upgrade path exists yet.
+- **The multi-file install is not atomic.** It is a journaled sequence of
+  exclusive single-file links. A crash leaves a journal, not a silent
+  half-install, and recovery must run before the target is usable again.
+
+## 7. Reporting and provenance
+
+- Upstream project: https://github.com/QuestionPilot/agentic-os-template
+- Pinned commit: `d0fb34feb4ddb2baaa7c0435a77649e7fdccd311`
+- License and third-party attribution: see `LICENSE` and `NOTICE`.
+- Authored for AOS: `README.md`, this document, the baseline inventory,
+  `CLAUDE.md`/`AGENTS.md`, the `docs/` set, the `src/`, `tests/`, `scripts/` and
+  `content/` trees shown in `README.md`, `LICENSE` and `NOTICE`.
+
+**How to read a status claim in this repository:** if a line says Verified, it
+names a command and an artifact state. If it does not, treat the line as
+UNVERIFIED no matter what wording surrounds it.
