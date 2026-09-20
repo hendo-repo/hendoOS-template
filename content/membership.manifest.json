@@ -1,0 +1,171 @@
+{
+  "version": 1,
+  "owner": "aos-core",
+  "generation": 2,
+  "scenarios": [
+    {
+      "id": "session-start-default",
+      "harness": "default",
+      "event": "session-start",
+      "expectedIds": [
+        "discipline-kernel",
+        "routing-notes"
+      ],
+      "expectedKernelIds": [
+        "discipline-kernel",
+        "routing-notes"
+      ]
+    },
+    {
+      "id": "session-start-with-state-keys",
+      "harness": "default",
+      "event": "session-start",
+      "stateKeys": [
+        "first-action",
+        "pivot"
+      ],
+      "expectedIds": [
+        "discipline-kernel",
+        "routing-notes"
+      ],
+      "expectedKernelIds": [
+        "discipline-kernel",
+        "routing-notes"
+      ]
+    },
+    {
+      "id": "task-start-declares-reference",
+      "harness": "default",
+      "event": "task-start",
+      "expectedIds": [
+        "discipline-kernel",
+        "verification-posture",
+        "verification-recipes"
+      ],
+      "expectedKernelIds": [
+        "discipline-kernel",
+        "verification-posture"
+      ]
+    },
+    {
+      "id": "task-start-with-unrelated-state-key",
+      "harness": "default",
+      "event": "task-start",
+      "stateKeys": [
+        "pivot"
+      ],
+      "expectedIds": [
+        "discipline-kernel",
+        "verification-posture",
+        "verification-recipes"
+      ],
+      "expectedKernelIds": [
+        "discipline-kernel",
+        "verification-posture"
+      ]
+    },
+    {
+      "id": "pre-edit-kernel-plus-declared-reference",
+      "harness": "default",
+      "event": "pre-edit",
+      "expectedIds": [
+        "verification-posture",
+        "verification-recipes"
+      ],
+      "expectedKernelIds": [
+        "verification-posture"
+      ]
+    },
+    {
+      "id": "pre-publish-kernel-plus-declared-reference",
+      "harness": "default",
+      "event": "pre-publish",
+      "expectedIds": [
+        "verification-posture",
+        "verification-recipes"
+      ],
+      "expectedKernelIds": [
+        "verification-posture"
+      ]
+    },
+    {
+      "id": "task-pivot-requires-pivot-state",
+      "harness": "default",
+      "event": "task-pivot",
+      "stateKeys": [
+        "pivot"
+      ],
+      "expectedIds": [
+        "routing-notes"
+      ],
+      "expectedKernelIds": [
+        "routing-notes"
+      ]
+    },
+    {
+      "id": "task-pivot-without-state-activates-nothing",
+      "harness": "default",
+      "event": "task-pivot",
+      "expectedIds": [],
+      "expectedKernelIds": []
+    },
+    {
+      "id": "capability-query-routes-only",
+      "harness": "default",
+      "event": "capability-query",
+      "expectedIds": [
+        "routing-notes"
+      ],
+      "expectedKernelIds": [
+        "routing-notes"
+      ]
+    },
+    {
+      "id": "delegate-kernel-only",
+      "harness": "default",
+      "event": "delegate",
+      "expectedIds": [
+        "discipline-kernel"
+      ],
+      "expectedKernelIds": [
+        "discipline-kernel"
+      ]
+    },
+    {
+      "id": "session-end-closeout-only",
+      "harness": "default",
+      "event": "session-end",
+      "expectedIds": [
+        "closeout-discipline"
+      ],
+      "expectedKernelIds": [
+        "closeout-discipline"
+      ]
+    },
+    {
+      "id": "task-complete-closeout-only",
+      "harness": "default",
+      "event": "task-complete",
+      "expectedIds": [
+        "closeout-discipline"
+      ],
+      "expectedKernelIds": [
+        "closeout-discipline"
+      ]
+    },
+    {
+      "id": "unknown-harness-activates-nothing",
+      "harness": "unlisted-harness",
+      "event": "session-start",
+      "expectedIds": [],
+      "expectedKernelIds": []
+    },
+    {
+      "id": "unknown-event-activates-nothing",
+      "harness": "default",
+      "event": "no-such-event",
+      "expectedIds": [],
+      "expectedKernelIds": []
+    }
+  ]
+}

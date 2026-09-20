@@ -1,0 +1,26 @@
+{
+  "name": "aos",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Agentic OS — Bun-only pure compiler core: content schema, deterministic composition, and fail-closed policy evaluation.",
+  "license": "MIT",
+  "packageManager": "bun@1.4.2",
+  "engines": {
+    "bun": ">=1.4.2"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "bun run --bun tsc --noEmit",
+    "verify": "bun scripts/verify.ts",
+    "benchmark": "bun scripts/benchmark.ts",
+    "export:public": "bun scripts/export-public.ts"
+  },
+  "dependencies": {
+    "zod": "^4.1.11"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.2.21",
+    "typescript": "^5.9.2"
+  }
+}
