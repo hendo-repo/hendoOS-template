@@ -254,7 +254,7 @@ describe('content gate: exact positive membership and negative controls', () => 
   test('an exact positive set passes and a proven-empty negative scenario is allowed', async () => {
     await withCorpus(manifestOf([
       scenario(),
-      scenario({ id: 'unknown-event-activates-nothing', event: 'no-such-event', expectedIds: [], expectedKernelIds: [] }),
+      scenario({ id: 'unknown-event-activates-nothing', event: 'no-such-event', expectedIds: [], expectedKernelIds: [], expectedStaticIds: [] }),
       scenario({ id: 'unknown-harness-activates-nothing', harness: 'unlisted-harness', expectedIds: [], expectedKernelIds: [], expectedStaticIds: [] }),
     ]));
     expect(await validateContent(root)).toEqual({ files: 1, documents: 1, scenarios: 3 });
@@ -279,6 +279,13 @@ describe('content gate: exact positive membership and negative controls', () => 
     await expect(validateContent(root)).rejects.toThrow();
     // The manifest expects a kernel that is not in its own expected id set.
     await withCorpus(manifestOf([scenario({ expectedKernelIds: ['ghost-kernel'] })]));
+    await expect(validateContent(root)).rejects.toThrow();
+  });
+
+  test('the declared static prefix must exactly equal the activated kernel set', async () => {
+    await withCorpus(manifestOf([scenario({ expectedStaticIds: [] })]));
+    await expect(validateContent(root)).rejects.toThrow();
+    await withCorpus(manifestOf([scenario({ expectedStaticIds: ['sample', 'ghost-kernel'] })]));
     await expect(validateContent(root)).rejects.toThrow();
   });
 

@@ -32,10 +32,16 @@ expansion from the exact rendered source after temporary trust. It is local
 compatibility evidence, not a CI gate or a promise about future harness builds.
 
 `src/edges/working-loop.ts` accepts one bounded JSON request on stdin. Its
-actions catalog/render spine skills; audit, recall, explicitly load, and index
-durable notes; or run closeout. Recall returns metadata first (`not-loaded`) and
-requires a digest-bound body read (`loaded`), so absence, non-loading, changed
-content, misunderstanding, and loaded-but-ignored feedback remain distinct.
+actions catalog/render spine skills; audit, recall, explicitly load, durably record
+recall feedback, and index durable notes; or run closeout. Recall returns metadata
+first (`not-loaded`) and requires a digest-bound body read (`loaded`). Feedback is
+written as a private `0600` immutable JSON record under an explicit state root,
+deduplicated by canonical digest, and linked to a task and evidence. The taxonomy is
+`inaccessible`, `not-found`, `loaded`, `not-loaded`, `misunderstood`, `loaded-but-ignored`,
+`stale-or-incorrect`, `disproportionate`, `applied`, or `no-action`. The last value is
+a valid note-linked outcome when recalled guidance was evaluated and warranted no
+change. Use `not-found` when no note was in play. No telemetry service or dashboard is
+required.
 Project notes lead, applicable active decisions follow, then matching lessons;
 critical active lessons cannot be hidden by ordinary trigger ranking, and
 `listAll` plus bounded pagination is the escape hatch. Native v1 notes and the

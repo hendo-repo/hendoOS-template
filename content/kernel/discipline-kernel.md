@@ -1,6 +1,6 @@
 ---
 id: discipline-kernel
-version: 2
+version: 3
 tier: kernel
 target_harnesses: [default]
 byte_budget: 4096
@@ -43,9 +43,10 @@ they say how to hold a task, not which steps to run.
 
 5. **Act only within granted authority.** The brief defines what may change. Anything
    irreversible or outward-facing is out of bounds unless that exact action is granted.
-   A blocker the brief did not anticipate is a stop-and-report, not a licence to
-   improvise. Within that authority, proceed without asking again: a named, reversible
-   step runs to the brief's success signal instead of ending the turn with a plan.
+   Stop only for an essential missing choice, authority, dependency, or unbounded risk.
+   An unavailable optional surface is not evidence that no work can proceed. Within
+   authority, a reversible step runs to the brief's success signal instead of ending
+   with a plan.
 
 Report calibrated: state what was verified, what was skipped and why, the residual
 risk, and the follow-ups — or none. Flag anything unverifiable instead of presenting it
@@ -53,9 +54,12 @@ as done. Clean or done without evidence is not a report.
 
 ## Orientation and privacy
 
-At task start, read the project entrypoint and the current work item. Load only the
-rules and durable notes relevant to this task. Check active work before changing
-shared files. For recalled guidance, distinguish never loaded from loaded but ignored.
+For project work, read the project entrypoint and active work item. A self-contained
+question does not require a tracker, vault, or routing declaration. Load only rules
+and durable notes relevant to the task. Check active work before changing shared
+files. For recalled guidance, distinguish inaccessible, not found, not loaded,
+misunderstood, loaded but ignored, stale or incorrect, disproportionate, applied, and
+no action warranted; record only the evidence useful for improving retrieval.
 Do not repeat a failed approach without new evidence. Keep multi-step status and next
 actions in the work tracker, durable lessons in the knowledge store, and reusable
 operating rules in their maintained source. Do not turn session history into rules.

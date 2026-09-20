@@ -8,7 +8,7 @@ afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: tru
 const digest = `sha256:${'a'.repeat(64)}`;
 const sourceRevision = 'a'.repeat(40);
 function op(extra: Record<string, unknown> = {}) {
-  return { version: 1, schemaVersion: 1, composeVersion: 1, contentGeneration: 3, requestId: 'request', sessionId: 'session', ownerId: 'owner', nonce: 'nonce',
+  return { version: 1, schemaVersion: 1, composeVersion: 1, contentGeneration: 4, requestId: 'request', sessionId: 'session', ownerId: 'owner', nonce: 'nonce',
     command: 'gate', scenarioId: 'pre-edit-kernel-plus-declared-reference', subjectDigest: digest,
     configRevision: DEFAULT_CONFIG.revision, checkerRevision: 'aos-policy/1', sourceRevision,
     observations: [{ key: 'verification', availability: 'available', freshness: 'fresh', completeness: 'complete', result: 'present', reasons: [], value: true,

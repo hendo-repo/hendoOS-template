@@ -1,8 +1,8 @@
 /**
  * Core compose + schema regression tests.
  *
- * Contract under test: `compose` must put all framework/kernel content in the
- * static prefix and only the volatile event/state metadata in the dynamic suffix;
+ * Contract under test: `compose` must put framework and activated-kernel content
+ * in the static prefix and volatile event/state metadata in the dynamic suffix;
  * it must validate the exact `mustFireIds` for the scenario; it must detect a
  * declared reference that does not resolve; and it must fail closed (not throw)
  * on malformed runtime input.
@@ -107,6 +107,26 @@ describe('compose: two-zone payload', () => {
     expect(first.payload.staticHash).toBe(second.payload.staticHash);
     expect(first.payload.staticPrefix).toBe(second.payload.staticPrefix);
     expect(first.payload.dynamicHash).not.toBe(second.payload.dynamicHash);
+  });
+
+  test('an unrelated event omits dormant procedures from the prefix', () => {
+    const documents = corpusDocuments(sources());
+    const result = compose(
+      { id: 'ordinary-question', harness: 'default' },
+      {},
+      {
+        documents,
+        staticBlocks: [FRAMEWORK_BLOCK],
+        mustFireIds: [],
+        mustFireKernelIds: [],
+        mustFireStaticIds: [],
+      },
+    );
+
+    expect(result.value.payload.staticPrefix).toContain('FRAMEWORK RULES');
+    expect(result.value.payload.staticPrefix).not.toContain('kernel-a');
+    expect(result.value.payload.staticPrefix).not.toContain('kernel-b');
+    expect(result.value.diagnostics.staticIds).toEqual([]);
   });
 
   test('dynamic suffix carries the event/state metadata, not content bodies', () => {

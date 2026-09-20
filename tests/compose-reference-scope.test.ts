@@ -4,8 +4,8 @@
  * Contract under test: the set of reference ids a *requested* reference may
  * resolve against is declared by the kernels **activated for the selected
  * scenario** — a kernel that targets this harness but does not activate must not
- * authorize its declared references. The static prefix stays invariant: every
- * kernel that targets the harness is still shipped, activated or not.
+ * authorize its declared references. The static prefix contains only kernels
+ * activated for the current scenario.
  *
  * Second contract: heading anchors in local Markdown links are computed from
  * prose only, so a `# heading` line inside a fenced code block is not an anchor.
@@ -75,7 +75,7 @@ function indexFor(docs: readonly ContentDocument[], mustFireIds: string[]): Comp
     staticBlocks: [{ id: 'framework-rules', text: '<!-- aos:static -->\nFRAMEWORK RULES\n' }],
     mustFireIds,
     mustFireKernelIds: mustFireIds,
-    mustFireStaticIds: docs.filter((document) => document.tier === 'kernel').map((document) => document.id).sort(),
+    mustFireStaticIds: mustFireIds,
   };
 }
 
@@ -131,19 +131,17 @@ describe('compose: reference declarations are scenario-scoped', () => {
     expect(result.ok).toBe(true);
   });
 
-  test('the static prefix still ships every targeted kernel, activated or not', () => {
+  test('the static prefix ships only the kernel activated for each scenario', () => {
     const dormant = dormantScenario('References: depth').value;
     const activated = activatedScenario('References: depth').value;
 
-    for (const payload of [dormant.payload, activated.payload]) {
-      expect(payload.staticPrefix).toContain('kernel-live');
-      expect(payload.staticPrefix).toContain('kernel-dormant');
-      expect(payload.staticPrefix).toContain('FRAMEWORK RULES');
-      expect(payload.dynamicSuffix).not.toContain('Rule body.');
-    }
-    // Prefix bytes depend on harness + corpus only, never on which kernel activated.
-    expect(dormant.payload.staticHash).toBe(activated.payload.staticHash);
-    expect(dormant.payload.staticPrefix).toBe(activated.payload.staticPrefix);
+    expect(dormant.payload.staticPrefix).toContain('kernel-live');
+    expect(dormant.payload.staticPrefix).not.toContain('kernel-dormant');
+    expect(activated.payload.staticPrefix).toContain('kernel-dormant');
+    expect(activated.payload.staticPrefix).not.toContain('kernel-live');
+    expect(dormant.payload.staticPrefix).toContain('FRAMEWORK RULES');
+    expect(activated.payload.staticPrefix).toContain('FRAMEWORK RULES');
+    expect(dormant.payload.staticHash).not.toBe(activated.payload.staticHash);
   });
 });
 

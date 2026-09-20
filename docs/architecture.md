@@ -5,8 +5,8 @@ The core turns explicit source text, events, state and observed facts into
 reproducible payloads and policy decisions.
 
 `schema` parses the supported frontmatter subset, validates strict contracts,
-selects activation and checks manifests. `compose` builds a stable per-harness
-kernel prefix, resolves requested reference prose, checks independent scenario
+selects activation and checks manifests. `compose` builds a stable activated-kernel
+prefix, resolves requested reference prose, checks independent scenario
 membership and assembles a versioned payload. `policy` evaluates validated rules
 against supplied observations. `protocols` supplies outcome/error types, safe paths,
 finite JSON validation, hashing, byte budgets and source maps.
@@ -20,10 +20,11 @@ They must propagate failed outcomes rather than extracting a partial value and
 reporting success. An allow verdict describes supplied evidence; it does not grant
 an adapter new authority.
 
-Membership expectations are a separate authored contract. The full activation set
-and kernel-only set are checked independently of mutable document tiers. The kernel
-prefix remains fixed across event/state changes for one harness and corpus
-version. Reference activation remains visible in diagnostics, while prose requires
+Membership expectations are a separate authored contract. The full activation set,
+kernel-only set, and emitted prefix set are checked independently of mutable document
+tiers. Dormant procedures are omitted. A prefix remains byte-stable for an identical
+activated-kernel set, while different scenarios may intentionally receive different
+prefixes. Reference activation remains visible in diagnostics, while prose requires
 an explicit request. Source maps retain file provenance across both regions.
 
 The core supports a deliberately small YAML subset and the Markdown link forms

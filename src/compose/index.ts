@@ -1,6 +1,6 @@
-/** Pure context compiler. Kernel prefix depends only on harness and corpus.
- * Scenario activation and explicitly requested reference prose form the suffix.
- * Both all-content and kernel-only membership expectations are caller-owned.
+/** Pure context compiler. Kernel prefix contains only activated kernel content.
+ * Explicitly requested reference prose and event metadata form the suffix.
+ * All membership expectations are independently caller-owned.
  */
 import { sortErrors, type AosError } from '../protocols/error';
 import { aosError } from '../protocols/error';
@@ -55,7 +55,7 @@ export interface ComposeIndex {
   mustFireIds?: readonly string[];
   /** Independently authored exact activated kernel set. Required for success. */
   mustFireKernelIds?: readonly string[];
-  /** Independently authored exact content-id set emitted in the static prefix. */
+  /** Independently authored exact activated-kernel set emitted in the static prefix. */
   mustFireStaticIds?: readonly string[];
 }
 
@@ -230,12 +230,14 @@ export function compose(
     .map((id) => allById.get(id))
     .filter((doc): doc is ContentDocument => doc !== undefined);
 
-  // The prefix contains every kernel document for this harness, sorted by id.
+  // The prefix contains only activated kernel documents, sorted by id.
   // Reference prose is emitted only for explicit state.referenceIds requests, and
   // only for references declared by a kernel *activated for this scenario*.
   const targeted = documents.filter(doc => doc.targetHarnesses.includes('*') || doc.targetHarnesses.includes(queryEvent.harness));
-  const kernels = targeted.filter(doc => doc.tier === 'kernel').sort((a, b) => a.id < b.id ? -1 : 1);
   const activatedKernelIds = new Set(activation.value.kernelIds);
+  const kernels = targeted
+    .filter(doc => doc.tier === 'kernel' && activatedKernelIds.has(doc.id))
+    .sort((a, b) => a.id < b.id ? -1 : 1);
   const declaredReferenceIds = new Set<string>();
   const missingDeclaredReferenceIds: string[] = [];
   for (const doc of targeted) {
@@ -318,7 +320,7 @@ export function compose(
   const mustFireStaticMissingIds = [...expectedStaticSet].filter(id => !actualStaticSet.has(id)).sort();
   const mustFireStaticExtraIds = [...actualStaticSet].filter(id => !expectedStaticSet.has(id)).sort();
   if (expectedStaticIds === undefined || mustFireStaticMissingIds.length || mustFireStaticExtraIds.length) {
-    errors.push(aosError('membership-mismatch', 'static prefix id set does not match explicit mustFireStaticIds', {
+    errors.push(aosError('membership-mismatch', 'activated kernel prefix does not match explicit mustFireStaticIds', {
       details: { expected: expectedStaticIds ?? null, actual: actualStaticIds,
         missing: mustFireStaticMissingIds, extra: mustFireStaticExtraIds },
     }));
@@ -351,7 +353,7 @@ export function compose(
   }
 
   // --- 6. Two-zone assembly --------------------------------------------------
-  // Static zone: framework blocks and all targeted kernels.
+  // Static zone: framework blocks and activated kernels.
   // Dynamic zone: requested references and event/state metadata.
   const staticSegments: PayloadSegment[] = staticBlocks.map((block) => {
     const rendered = renderStaticBlock(block.id, block.text);

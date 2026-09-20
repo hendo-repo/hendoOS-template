@@ -23,7 +23,7 @@ A complete `gate.json` example for the shipped generation:
   "version": 1,
   "schemaVersion": 1,
   "composeVersion": 1,
-  "contentGeneration": 3,
+  "contentGeneration": 4,
   "requestId": "demo-gate-1",
   "sessionId": "demo",
   "ownerId": "demo",

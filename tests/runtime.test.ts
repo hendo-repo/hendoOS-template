@@ -14,7 +14,7 @@ afterEach(() => { for (const db of stores.splice(0)) db.close(); for (const dir 
 const digest = `sha256:${'a'.repeat(64)}`;
 const sourceRevision = 'a'.repeat(40);
 export function operation(extra: Record<string, unknown> = {}) {
-  return { version: 1, schemaVersion: 1, composeVersion: 1, contentGeneration: 3,
+  return { version: 1, schemaVersion: 1, composeVersion: 1, contentGeneration: 4,
     requestId: 'request-1', sessionId: 'session-1', ownerId: 'owner-1', nonce: 'nonce-1',
     command: 'gate', scenarioId: 'pre-edit-kernel-plus-declared-reference',
     subjectDigest: digest, configRevision: DEFAULT_CONFIG.revision, checkerRevision: 'aos-policy/1', sourceRevision,

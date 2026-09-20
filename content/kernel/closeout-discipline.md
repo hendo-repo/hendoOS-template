@@ -1,6 +1,6 @@
 ---
 id: closeout-discipline
-version: 2
+version: 3
 tier: kernel
 target_harnesses: [default]
 byte_budget: 3072
@@ -25,8 +25,9 @@ classified. Closeout is a pass, not a summary.
 3. Is the lesson already represented somewhere, or does it need a new home?
 4. Can the lesson become a check or a script instead of prose?
 5. What durable knowledge does this change, and where does it live?
-6. Was a rule re-taught that already existed? If so, the recall surface failed, not
-   the rule — name which surface: never loaded, or loaded and ignored.
+6. Was relevant guidance inaccessible, not found, not loaded, misunderstood, loaded
+   but ignored, stale or incorrect, disproportionate, applied, or correctly left with
+   no action? Record the observed category without assuming every miss is a rule defect.
 7. What did the work reveal about missing data, unclear handoffs, or unbounded goals?
 
 8. What active state or durable artifact changed? Record the destination and update
@@ -39,7 +40,10 @@ project facts to project knowledge, tool usage to the tool guide, decisions and 
 findings to the knowledge store, and unfinished actions to the work tracker. Report a
 recall failure where the retrieval path can be repaired. A lesson is not retained until
 its destination is recorded and the next session can find it. Do not copy private
-history into public rules. If nothing merits retention, state that result.
+history into public rules. If recalled guidance was evaluated and nothing merits
+retention or a changed action, note-linked `no action` is a valid result; use
+`not found` when no note was in play.
+Do not require a telemetry system or dashboard merely to record a useful observation.
 
 ## Artifact classification
 

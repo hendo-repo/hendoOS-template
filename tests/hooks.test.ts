@@ -22,7 +22,7 @@ const sourceRevision = 'a'.repeat(40);
 const facts = [{ key: 'verification', availability: 'available' as const, freshness: 'fresh' as const,
   completeness: 'complete' as const, result: 'present' as const, reasons: [], value: true }];
 const config = { version: 1 as const, protocol: HARNESS_PROTOCOL as typeof HARNESS_PROTOCOL, schemaVersion: 1 as const,
-  composeVersion: 1 as const, contentGeneration: 3, configRevision: 'aos-runtime-default/1',
+  composeVersion: 1 as const, contentGeneration: 4, configRevision: 'aos-runtime-default/1',
   checkerRevision: 'aos-policy/1' as const, sourceRevision, timeoutMs: 5000, syntheticObservations: facts };
 const event = { hook_event_name: 'PreToolUse', session_id: 'test-session', tool_use_id: 'test-call',
   transcript_path: '/unused/transcript.jsonl', cwd: '/unused/project', tool_name: 'Edit',

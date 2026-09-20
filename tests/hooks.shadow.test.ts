@@ -37,7 +37,7 @@ const sourceRevision = 'a'.repeat(40);
 const facts = [{ key: 'verification', availability: 'available' as const, freshness: 'fresh' as const,
   completeness: 'complete' as const, result: 'present' as const, reasons: [], value: true }];
 const config: RenderOptions['config'] = { version: 1, protocol: HARNESS_PROTOCOL, schemaVersion: 1,
-  composeVersion: 1, contentGeneration: 3, configRevision: 'aos-runtime-default/1',
+  composeVersion: 1, contentGeneration: 4, configRevision: 'aos-runtime-default/1',
   checkerRevision: 'aos-policy/1', sourceRevision, timeoutMs: 5000, syntheticObservations: facts };
 const DENY_ALL = { version: 1 as const, revision: 'aos-runtime-default/1', checkerRevision: 'aos-policy/1' as const,
   totalByteBudget: 65536, gateFailure: 'closed' as const, rules: [{ id: 'deny-all', decision: 'deny' as const }] };
@@ -140,7 +140,7 @@ test('incomplete shadow evidence is indeterminate, never inferred permission eit
 test('in-process encoding assigns zero native authority to a synthetic allow or an absent runtime', () => {
   const receipt = { version: 1 as const, requestId: 'r', sessionId: 's', ownerId: 'o', nonce: 'n',
     requestDigest: 'sha256:' + 'a'.repeat(64), payloadHash: 'sha256:' + 'b'.repeat(64), schemaVersion: 1 as const,
-    composeVersion: 1 as const, contentGeneration: 3, contentDigest: 'sha256:' + 'c'.repeat(64),
+    composeVersion: 1 as const, contentGeneration: 4, contentDigest: 'sha256:' + 'c'.repeat(64),
     subjectDigest: 'sha256:' + 'd'.repeat(64), configRevision: 'aos-runtime-default/1',
     configDigest: 'sha256:' + 'e'.repeat(64), checkerRevision: 'aos-policy/1' as const,
     sourceRevision,

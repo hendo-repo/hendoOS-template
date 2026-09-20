@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat } from 'node:fs/promises';
+import { chmod, lstat, mkdir, open, readFile, readdir, realpath, rename, rm, stat } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { canonicalize, digestOfString } from '../protocols/json';
 import { parseFrontmatter } from '../schema/frontmatter';
@@ -181,8 +181,34 @@ export function readKnowledgeNote(audit: KnowledgeAudit, id: string, expectedDig
     body: note.body };
 }
 
-export function recordRecallFeedback(input: unknown): object {
-  return { schema: 'hendoos.recall-feedback/v1', ...RecallFeedbackSchema.parse(input) };
+export async function recordRecallFeedback(stateRoot: string, input: unknown): Promise<object> {
+  const feedback = RecallFeedbackSchema.parse(input);
+  const record = { schema: 'hendoos.recall-feedback/v1' as const, ...feedback };
+  const digest = digestOfString(canonicalize(record));
+  const relativePath = `recall-feedback/${digest.slice('sha256:'.length)}.json`;
+  const requestedRoot = resolve(stateRoot);
+  await mkdir(requestedRoot, { recursive: true, mode: 0o700 });
+  const canonicalRoot = await realpath(requestedRoot);
+  const feedbackDirectory = join(canonicalRoot, 'recall-feedback');
+  try {
+    const info = await lstat(feedbackDirectory);
+    if (info.isSymbolicLink() || !info.isDirectory()) throw new KnowledgeError('unsafe-recall-feedback-directory');
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    await mkdir(feedbackDirectory, { mode: 0o700 });
+  }
+  const canonicalFeedbackDirectory = await realpath(feedbackDirectory);
+  if (!isInside(canonicalRoot, canonicalFeedbackDirectory)) throw new KnowledgeError('recall-feedback-outside-state-root');
+  const path = join(canonicalFeedbackDirectory, `${digest.slice('sha256:'.length)}.json`);
+  const body = JSON.stringify({ ...record, digest }, null, 2) + '\n';
+  let replayed = false;
+  try { await writeExclusive(path, body); }
+  catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || await readFile(path, 'utf8') !== body) throw error;
+    if (process.platform !== 'win32') await chmod(path, 0o600);
+    replayed = true;
+  }
+  return { ...record, digest, path: relativePath, replayed };
 }
 
 type IndexPage = { path: string; markdown: string; digest: string };

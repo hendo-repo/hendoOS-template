@@ -1,7 +1,7 @@
 {
   "version": 1,
   "owner": "aos-core",
-  "generation": 3,
+  "generation": 4,
   "scenarios": [
     {
       "id": "session-start-default",
@@ -16,10 +16,8 @@
         "routing-notes"
       ],
       "expectedStaticIds": [
-        "closeout-discipline",
         "discipline-kernel",
-        "routing-notes",
-        "verification-posture"
+        "routing-notes"
       ]
     },
     {
@@ -39,10 +37,8 @@
         "routing-notes"
       ],
       "expectedStaticIds": [
-        "closeout-discipline",
         "discipline-kernel",
-        "routing-notes",
-        "verification-posture"
+        "routing-notes"
       ]
     },
     {
@@ -59,9 +55,7 @@
         "verification-posture"
       ],
       "expectedStaticIds": [
-        "closeout-discipline",
         "discipline-kernel",
-        "routing-notes",
         "verification-posture"
       ]
     },
@@ -82,9 +76,7 @@
         "verification-posture"
       ],
       "expectedStaticIds": [
-        "closeout-discipline",
         "discipline-kernel",
-        "routing-notes",
         "verification-posture"
       ]
     },
@@ -100,9 +92,6 @@
         "verification-posture"
       ],
       "expectedStaticIds": [
-        "closeout-discipline",
-        "discipline-kernel",
-        "routing-notes",
         "verification-posture"
       ]
     },
@@ -118,9 +107,6 @@
         "verification-posture"
       ],
       "expectedStaticIds": [
-        "closeout-discipline",
-        "discipline-kernel",
-        "routing-notes",
         "verification-posture"
       ]
     },
@@ -138,10 +124,7 @@
         "routing-notes"
       ],
       "expectedStaticIds": [
-        "closeout-discipline",
-        "discipline-kernel",
-        "routing-notes",
-        "verification-posture"
+        "routing-notes"
       ]
     },
     {
@@ -150,12 +133,7 @@
       "event": "task-pivot",
       "expectedIds": [],
       "expectedKernelIds": [],
-      "expectedStaticIds": [
-        "closeout-discipline",
-        "discipline-kernel",
-        "routing-notes",
-        "verification-posture"
-      ]
+      "expectedStaticIds": []
     },
     {
       "id": "capability-query-routes-only",
@@ -168,10 +146,7 @@
         "routing-notes"
       ],
       "expectedStaticIds": [
-        "closeout-discipline",
-        "discipline-kernel",
-        "routing-notes",
-        "verification-posture"
+        "routing-notes"
       ]
     },
     {
@@ -185,10 +160,7 @@
         "discipline-kernel"
       ],
       "expectedStaticIds": [
-        "closeout-discipline",
-        "discipline-kernel",
-        "routing-notes",
-        "verification-posture"
+        "discipline-kernel"
       ]
     },
     {
@@ -202,10 +174,7 @@
         "closeout-discipline"
       ],
       "expectedStaticIds": [
-        "closeout-discipline",
-        "discipline-kernel",
-        "routing-notes",
-        "verification-posture"
+        "closeout-discipline"
       ]
     },
     {
@@ -219,10 +188,7 @@
         "closeout-discipline"
       ],
       "expectedStaticIds": [
-        "closeout-discipline",
-        "discipline-kernel",
-        "routing-notes",
-        "verification-posture"
+        "closeout-discipline"
       ]
     },
     {
@@ -239,12 +205,7 @@
       "event": "no-such-event",
       "expectedIds": [],
       "expectedKernelIds": [],
-      "expectedStaticIds": [
-        "closeout-discipline",
-        "discipline-kernel",
-        "routing-notes",
-        "verification-posture"
-      ]
+      "expectedStaticIds": []
     }
   ]
 }
